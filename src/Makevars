@@ -1,0 +1,7 @@
+# -*- Makefile -*-
+
+#PKG_FFLAGS=-std=legacy
+#PKG_FFLAGS=-std=f2003 -pedantic
+PKG_CFLAGS=$(SHLIB_OPENMP_CFLAGS)
+PKG_LIBS=$(SHLIB_OPENMP_CFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)# `pkg-config --silence-errors --libs tcmalloc`
+OBJECTS=dglinv.o phytr.o oumods.o dgpadm.o chn.o

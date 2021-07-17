@@ -1,0 +1,2594 @@
+/* -*- tab-width: 8; indent-tabs-mode: t; -*- */
+
+#include<R.h>
+#include<stdlib.h>
+#include<stdio.h>
+#include<strings.h>
+#include<Rinternals.h>
+#include<Rmath.h>
+
+/* Microsoft had only added support to the C99 _Pragma() in 2020 summer. For older
+   MS compilers we need __pragma(). */
+#ifdef _MSC_VER
+#define __PRAGMA__ __pragma
+#else
+#define __PRAGMA__ _Pragma
+#endif
+
+/* Old versions of OpenMP (for example in Open64 compilers) doesn't support the atomic
+   read/write with pointer assignments. In that case we resort to locking the entire
+   piece of code. */
+#ifdef _OPENMP
+#if _OPENMP > 201400
+#define __ATOMIC_READ__  __PRAGMA__("omp atomic read")
+#define __ATOMIC_WRITE__ __PRAGMA__("omp atomic write")
+#else
+#define __ATOMIC_READ__  __PRAGMA__("omp critical")
+#define __ATOMIC_WRITE__ __PRAGMA__("omp critical")
+#endif
+#else
+#define __ATOMIC_READ__
+#define __ATOMIC_WRITE__
+#endif
+
+/* Struct that represents the data carried by a node. Pointers will be to the heap.
+   Invariant:  1. ndat for the global root exists, fields are allocated, but has no meaning.
+               2. x is non-null if and only if the node associated with it is a tip
+*/
+struct ndat {
+	/* These are allocated and used at all circumstances. */
+	int ku;
+	int ndesc;		/* Number of descendants */
+	double *x;
+	
+	/* These are allocated and used only when the first-order derivatives are needed. */
+	double *a, *HPhi, *Lamb,
+		*dodv, *dodphi, *dgamdv, *dgamdw, *dgamdphi, *dcdw, *dcdv, *dddv,
+		*dlikdv, *dlikdw, *dlikdphi;
+
+	/* These are allocated and used only when the Hessian is needed  */
+	double *H, *b;		         /* Isn't allocated for root but allocated for all others */
+	double *invV, *so, *sgam, *sc;   /* Allocated for all */
+};
+
+
+/* Contains both intermediate results of Hessian computation as well as
+   indicies of corresponding parameters in the packed Hessian matrix. The
+   root doesn't have this structure attached to it, but instead, the
+   corresponding memory of the root contains a rootbk structure which
+   has different sort of information, including meta information about
+   the entire tree.
+*/
+struct hselfbktip { double *invVPhi, *invVxw;                                };
+struct hselfbkgen { double *invVLsO, *invVLsOPhi, *VmVLV, *invVLb, *Hto; };
+struct nonrootbk {
+	long Phi, w, V;	/* Indices of the parameters in the gradient vector. Filled in Rnewnode() */
+	union {
+		struct hselfbktip hsbktip;
+		struct hselfbkgen hsbkgen;
+	} u;
+};
+
+/* Bookkeeping variables at the root node. */
+struct rootbk {
+	long nparam;
+	int xavail;
+	double *hessflat;
+	int hessflat_needs_free;
+};
+
+/* Book keeping variables, used only in gradwk() and grad() as tmp vars. */
+struct diffbk {  double *F, *z, *K; };
+
+/* Represents a node in a general tree.
+   
+    Invariant: 1.   0 <= id of tips <= number of tips - 1.
+               2.   node.id + 1 == ape's node id for all nodes.
+               3.   id of all the children are unique and never repeat.
+               4.   content in ndat is has meaning only if the node is not a global root.
+*/
+struct node {
+	int id;
+	struct ndat ndat;
+	struct node *chd, *nxtsb;   /* First most child and next sibling resp. */
+	union {
+		struct nonrootbk hnbk;
+		struct rootbk rbk;
+	} u;
+};
+
+struct llst {			/* Linked list containing matrices/vectors */
+	struct llst *nxt;
+	int siz;                /* Not the length of dat[1]. Depends on the context. */
+	double dat[1];		/* Allocate bigger memory to store this */
+};
+struct llstptr { 		/* Linked list containing simple pointers */
+	struct llstptr *nxt;
+	int siz;
+	void *dat;
+};
+
+enum hessparcomb { IVV, IVPHI, IVW, IPHIPHI, IPHIW, IWW };
+
+/* Book keeping for the global-level tree walk in the Hessian computation */
+struct hessglbbk {
+	struct llst	*fm;	struct llst	*fmlfm;
+	struct llst	*qm;	struct llstptr	*a;
+	int mdim;
+};
+
+
+/* Represents missing-ness. Stores all informations about NA/NaN etc.
+   The core V-w-Phi space computation will NOT see any NA/NaN. Note that
+   tip traits are "sanitised" before even enter into `struct node`. This
+   structure is necessary for even constructing the arguments for
+   Rnewnodes.  */
+struct miss { int *M; };
+enum missingness { LOST, USUAL, MISS };
+
+/* Function for accessing V-w-Phi from both the list format or a vector format */
+typedef size_t (*fn_getvwphi)(SEXP, struct node *, int, double **, double **, double **, void *, size_t);
+
+struct dfdqdk {   /* Passed into Fortran */
+	double *R;	int kr;
+	int knu;	int knv;
+	int kmu;	int kmv;
+};
+#define DFQKSIZ sizeof(struct dfdqdk)
+
+static int protdpth = -1;    /* Keeps track of the R GC PROTECT() depth. */
+#define RUPROTERR(ARG) { if (protdpth>0) { UNPROTECT(protdpth); protdpth=-1; }; \
+		         error ARG; }
+/*
+  We store the Hessian as a uplo='L' format. It's simply a storage scheme and
+  users won't see this at all.
+*/
+extern void bilinupdt_(double *d, double *hessflat, long *npar, long *idx1, long *idx2, double *dir, int *ndir);
+extern void houspdh_(double *Horig, double *par, double *djac, int *ldjac, int *joffset, int *m,
+		     int *k, int *npar_orig, int *npar_new, double *out);
+extern void houlnspdh_(double *Horig, double *par, double *djac, int *ldjac, int *joffset, int *m,
+		       int *k, int *npar_orig, int *npar_new, double *out);
+extern void houchnsymh_(double *Horig, int *m, int *k, int *nparorig, double *out);
+extern void dchnunchol_(double *DFDH, double *L, int *m, int *k, double *DFDL);
+extern void dlnchnunchol_(double *DFDH, double *L, int *m, int *k, double *DFDL);
+extern void lnunchol_(double *sig_x, int *k, double *wsp, int *lwsp, double *out, int *info);
+extern void unchol_(double *sig_x, int *k, double *wsp, int *lwsp, double *out, int *info);
+extern void diagone_(double *A, int *siz);
+extern void diagoneclr_(double *A, int *siz);
+extern void ndmerg_(double *V, double *w, double *Phi, int *kv, int *ku,
+		    double *c, double *gam, double *o, double *d,
+		    double *cout, double *gamout, double *oout, double *dout, int *info);
+extern void dmerg_(double *V, double *w, double *Phi, int *kv, int *ku,
+		   double *c, double *gam, double *o, double *d,
+		   double *cout, double *gamout, double *oout, double *dout,
+		   double *a, double *HPhi, double *Lamb,
+		   double *dodv, double *dodphi,
+		   double *dgamdv, double *dgamdw, double *dgamdphi,
+		   double *dcdw, double *dcdv, double *dddv, int *info);
+extern void hmerg_(double *V, double *w, double *Phi, int *kv, int *ku,
+		   double *c, double *gam, double *o, double *d,
+		   double *cout, double *gamout, double *oout, double *dout,
+		   double *a, double *b, double *invV, double *H, double *HPhi, double *Lamb,
+		   double *dodv, double *dodphi, double *dgamdv, double *dgamdw,
+		   double *dgamdphi, double *dcdw, double *dcdv, double *dddv, int *info);
+extern void ndtcgod_(double *V, double *w, double *Phi, double *x, int *kv, int *ku, double *c,
+		     double *gam, double *o, double *d, int *info);
+extern void dtcgod_(double *V, double *w, double *Phi, double *x, int *kv, int *ku, double *c,
+		    double *gam, double *o, double *d,
+		    double *dodv, double *dodphi,
+		    double *dgamdv, double *dgamdw, double *dgamdphi,
+		    double *dcdw, double *dcdv, double *dddv, int *info);
+extern void htcgod_(double *V, double *w, double *Phi, double *x, int *kv, int *ku, double *c,
+		    double *gam, double *o, double *d, double *solV, double *b,
+		    double *dodv, double *dodphi,
+		    double *dgamdv, double *dgamdw, double *dgamdphi,
+		    double *dcdw, double *dcdv, double *dddv, int *info);
+extern void phygausslik_(double *c, double *gam, double *o, double *d, double *x0, int *siz0, int *k, double *lik);
+extern void ddcr_(int *kr, int *ku, double *x0, double *dodv, double *dodphi,
+		  double *dgamdv, double *dgamdw, double *dgamdphi,
+		  double *dcdw, double *dcdv, double *dddv,
+		  double *dlikdv, double *dlikdw, double *dlikdphi);
+extern void fzkdown_(double *Fb, double *zb, double *Kb, double *HPhib, double *ab, double *Lambb, double *x0,
+		     int *siz_c, int *siz_b, int *siz_a, int *siz_r,
+		     double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev,
+		     double *dgamdphiev, double *dcdwev, double *dcdvev, double *dddvev,
+		     double *dlikdv, double *dlikdw, double *dlikdphi, double *Fa, double *za, double *Ka);
+extern void gesylcpy_(double *dst, double *src, int *k);
+extern void sylgecpy_(double *dst, double *src, int *k);
+extern void lsylgecpy_(double *dst, double *src, long *k);
+extern void hselfbkgen_(double *solV, double *Lamb, double *sO, double *Phi, double *b, double *H,
+			int *kv, int *ku,
+			double *solVLsO, double *solVLsOPhi, double *VmVLV, double *solVLb, double *Hto);
+extern void hselfbktip_(double *solV, double *x, double *w, double *Phi, int *kv, int *ku,
+			double *solVPhi, double *solVxw);
+/* extern void printmat_(double *A, int *krow, int* kcol); */
+extern void dbledifftopgen_(int *ictx, int *i, int *j, int *m, int *n, int *kr, int *kv, int *ku,
+			double *solVLsO, double *solVLsOPhi, double *VmVLV, double *solVLB,
+			double *Hto, double *x0, double *d2L);
+extern void dbledifftoptip_(int *ictx, int *i, int *j, int *m, int *n, int *kr, int *kv, int *ku,
+			double *solV, double *solVPhi, double *solVxw, double *x0, double *d2L);
+extern long ijtouplolidx_(long *siz, long *i, long *j);
+extern int iijtouplolidx_(int *siz, int *i, int *j);
+extern void symhessvv_(int *i, int *j, int *m, int *n,
+		       double *dlijmn, double *dljimn, double *dljinm, double *dlijnm, double *dl);
+extern void symhessvany_(int *i, int *j, double *dlijany, double *dljiany, double *dl);
+extern void tmtmdir_(int *kr, int *kv, int *ku, struct llst **fmlfm_c, struct llst **qm_c,
+		     struct llst **fm_c, struct llstptr **a_c,
+		     double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev,
+		     struct dfdqdk *dfqk1_ch, double *K, double *x0, int *istip, double *solVLsO, double *solVLsOPhi, double *VmVLV,
+		     double *solVLB, double *Hto, double *bilinmat, double *dir, int *ndir, long *nparam, long *adphi, long *adV, long *adw);
+extern void tmtm2_(int *kr, int *kv, int *ku, struct llst **fmlfm_c, struct llst **qm_c,
+		   struct llst **fm_c, struct llstptr **a_c,
+		   double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev,
+		   struct dfdqdk *dfqk1_ch, double *K, double *x0, int *istip, double *solVLsO, double *solVLsOPhi, double *VmVLV,
+		   double *solVLB, double *Hto, double *hessflat, long *nparam, long *adphi, long *adV, long *adw);
+extern void updategbk_(int *kv, int *ku, struct llst **fmlfm_c, struct llst **fmlfm_new, struct llst **fm_c,
+		       struct llst **fm_new, struct llst **qm_c, struct llst **qm_new, double *Lamb, double *HPhi, double *a);
+extern void tndown1st_(struct dfdqdk *dfqk1_ch, double *K, double *H, double *HPhi,double *w, double *a, double *f1m,
+		       double *q1m, double *Lamb, double *solV, double *solVLsOPhi, int *kr, int *kv, int *ku,
+		       struct dfdqdk *dfqk1new_ch);
+extern void tndown_(struct dfdqdk *dfqk1_ch, double *HPhi, double *a, int *kr, int *knv, int *knu, int *kmv, int *kmu, struct dfdqdk *dfqk1new_ch);
+extern void tntm_(int *kr, int *kmv, int *kmu, int *knv, int *knu, struct dfdqdk *dfqk1_ch,
+		  double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev, double *x0,
+		  double *hessflat, long *nparam, long *admphi, long *admV, long *admw, long *adnphi, long *adnV, long *adnw);
+extern void tntmdir_(int *kr, int *kmv, int *kmu, int *knv, int *knu, struct dfdqdk *dfqk1_ch,
+		     double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev, double *x0,
+		     double *bilinmat, double *dir, int *ndir, long *nparam, long *admphi, long *admV, long *admw, long *adnphi, long *adnV, long *adnw);
+extern void tntmthrfast_(int *kr, int *knv, int *knu, int *kmv, int *kmu, struct dfdqdk *dfqk1_ch,
+			 double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev, double *x0,
+			 void *wsp, size_t *lwsp);
+extern void tntmcpy_(int *kmv, int *kmu, int *knv, int *knu, void *wsp, size_t *lwsp,
+		     double *hessflat, long *nparam, long *admphi, long *admV, long *admw, long *adnphi, long *adnV, long *adnw);
+extern void tntmcpydir_(int *kmv, int *kmu, int *knv, int *knu, void *wsp, size_t *lwsp,
+			double *bilinmat, double *dir, int *ndir, long *nparam, long *admphi, long *admV, long *admw, long *adnphi, long *adnV, long *adnw);
+extern void betadown_(struct llst **falfm_c, struct llst **falfm_new, struct llst **fmg_c,
+		      double *f1a, double *q1a, double *HPhi, double *a, int *nk, int *mdim, int *kr, int *kbu, int *kbv, int *kmv);
+extern void initfqk4b_(struct dfdqdk *dfqk1_ch, struct llst **fmg_c, struct llst **qmg_c, struct llst **falfm_c, double *f1a, double *q1a,
+		       struct llstptr **a_c,  int *nk, int *kr, int *kav, int *kmv, int *kmu,
+		       double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev);
+extern void initfalfm_beta_(struct llst **falfm_c, struct llst **fmg_c, int *kbu, int *kmv);
+extern void dfqk_mmp1_(struct dfdqdk *dfqk1_ch, double *H, double *HPhi, double *w, double *a, double *Lamb, double *solV, double
+		       *solVLsOPhi, int *ku, int *kr);
+extern void curvifyupdate_(double *H, double *HV, double *Hw, double *HPhi, int *npar, int *ku, int *kv, double *dlikdv, double *dlikdw, double *dlikdphi, double *wsp);
+
+#define DEF_TCGOD(NAME) void NAME (struct node *t, int kv, double *v, double *w, double *phi, double *c, double *gam, double *o, double *d, int *info)
+typedef DEF_TCGOD((*fn_tcgod));
+#define DEF_MERG(NAME) void NAME (struct node *t, int kv, \
+				  double *v, double *w, double *phi, \
+				  double *c1, double *gam1, double *o1, double *d1, \
+				  double *c, double *gam, double *o, double *d, int *info)
+typedef DEF_MERG((*fn_merg));
+
+void dndgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, double *o, double *d,
+	       fn_getvwphi get_VwPhi, fn_tcgod tcgod, fn_merg merg, void *wsp, size_t swsp, size_t lwsp, int *info);
+void hgcgod     (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, double *o, double *d,
+		 fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, int *info);
+int hess        (struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, double *extrmem, double *dir, int ndir);
+void grad       (struct node *t, double *x0);
+void gradwk     (struct node *a, struct node *b, struct node *c, double *x0, struct diffbk bk, int kr);
+int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk, double *x0, struct node *rt, SEXP VwPhi_L,
+	       fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, int *interrupted, double *extrmem, double *dir, int ndir);
+void hessselftop(struct node *m, int kv, int ictx, int i, int j, int p, int q, double *x0, struct node *rt, double *hessflat, double *dir, int ndir);
+void initgbk(struct hessglbbk *gbk, struct node *rt, struct node *p, int maxdim);
+void delgbk(struct hessglbbk gbk);
+       
+
+
+#define dcalloc(LHS, N, ONFAIL) { void* T; if( !(T = malloc((N)*sizeof(double)))) goto ONFAIL; dzero(T,N); LHS=T; }
+#define icalloc(LHS, N, ONFAIL) { void* T; if( !(T = malloc((N)*sizeof(int))))    goto ONFAIL; izero(T,N); LHS=T; }
+void dzero (double *X, size_t n)           { while(n) X[--n] = 0; }
+void izero (int *X, size_t n)              { while(n) X[--n] = 0; }
+void dset  (double *X, double y, size_t n) { while(n) X[--n] = y; }
+void iset  (int *X, int y, size_t n)       { while(n) X[--n] = y; }
+
+void free_tree(struct node *t);
+void R_free_tree(SEXP p) {
+	void *hessflat;
+	struct node *t;
+	if ((t = R_ExternalPtrAddr(p))) {
+		hessflat = t->u.rbk.hessflat;
+		if (t->u.rbk.hessflat_needs_free)
+			free(hessflat);
+		free_tree(t);
+		R_ClearExternalPtr(p);
+	}
+}
+void free_tree(struct node *t) {
+	if (t) {
+		free_tree(t->nxtsb);	free_tree(t->chd);
+		free(t->ndat.x);	free(t->ndat.dlikdv);
+		free(t);
+	}
+}
+
+struct node *newnode(int id, int ku) {
+	/* kv should be zero for the global root. If so, no VwPhi mem. is alloc'd. */
+	struct node *n;
+	
+	if (! (n = calloc(1, sizeof(struct node))) ) goto MEMFAIL;
+	n->id	= id;
+	n->ndat.ku	= ku;
+	n->ndat.ndesc	= 0;
+	n->ndat.x	= NULL;
+	n->ndat.dlikdv	= NULL;
+	return n;
+MEMFAIL:
+	error("newnode(): Failure allocating memory (newnode())");
+	return NULL;
+}
+
+SEXP Rwrapnode(void *n) {
+	SEXP eptr;
+	eptr = PROTECT(R_MakeExternalPtr(n, install("phytr_node"), R_NilValue));
+	R_RegisterCFinalizerEx(eptr, R_free_tree, TRUE);
+	UNPROTECT(1);
+	return eptr;
+}
+
+void fillhidx(struct node **nra, int *edges, int n, int rootid) {
+	int i = 0, lim = rootid, j;
+	/* Precondition: root->u.rbk.nparam = 0 */
+DOAGAIN:
+	for (j=1; edges[j] != i+1; j+=2) ;;          /* Won't OOB unless isolated nodes exist */
+	nra[i]->u.hnbk.Phi = nra[rootid]->u.rbk.nparam;
+	nra[i]->u.hnbk.w = nra[i]->u.hnbk.Phi + (long)((nra[i]->ndat.ku) * (nra[edges[j-1]-1]->ndat.ku));
+	nra[i]->u.hnbk.V = nra[i]->u.hnbk.w + (long)(nra[i]->ndat.ku);
+	nra[rootid]->u.rbk.nparam = nra[i]->u.hnbk.V + ((nra[i]->ndat.ku) * (nra[i]->ndat.ku + 1)) / 2;
+TESTAGAIN:
+	if (++i < lim)  {        goto DOAGAIN;   }
+	if (lim != n)   { lim=n; goto TESTAGAIN; }   /* Skip rootid, jump back into the loop. */
+}
+
+
+void settip(struct node *t, SEXP Rxtab) {
+	void *tmp;
+	if (t->id < length(Rxtab)) { 
+		if (!(tmp = realloc(t->ndat.x, t->ndat.ku * sizeof(double)))) goto MEMFAIL;
+		memcpy((t->ndat.x=tmp), REAL(VECTOR_ELT(Rxtab, t->id)), t->ndat.ku * sizeof(double));
+	} else for (struct node *p = t->chd; p; p = p->nxtsb)
+		settip(p, Rxtab);
+	return;
+MEMFAIL:
+	error("settip2(): Failed to allocate memory");
+}
+SEXP Rsettip(SEXP Rtr, SEXP Rxtab) {	
+	struct node *t;
+	t = (struct node *)R_ExternalPtrAddr(Rtr);
+	t->u.rbk.xavail = 1;
+	for (struct node *p = t->chd; p; p=p->nxtsb)
+		settip(p, Rxtab);
+	return Rtr;
+}
+int fillndesc(struct node *t) {
+	if (!(t->chd)) return 1;
+	for (struct node *p=t->chd; p; p=p->nxtsb)
+		t->ndat.ndesc += fillndesc(p);
+	return 1 + t->ndat.ndesc;
+}
+
+void vwphi_paradr2(struct node *t, int *adtab, int ldt) {
+	adtab[t->id] = t->u.hnbk.Phi+1;
+	adtab[t->id+ldt] = (int)(t->u.hnbk.V+((t->ndat.ku)*(t->ndat.ku+1))/2);
+	for (struct node *p=t->chd; p; p=p->nxtsb)
+		vwphi_paradr2(p, adtab, ldt);
+}
+void vwphi_paradr(struct node *t, int *adtab, int ldt) {
+	adtab[t->id] = NA_REAL; adtab[t->id+ldt] = NA_REAL;
+	for (struct node *p=t->chd; p; p=p->nxtsb) vwphi_paradr2(p, adtab, ldt);
+}
+SEXP Rvwphi_paradr(SEXP Rt) {
+	struct node *t = R_ExternalPtrAddr(Rt);
+	int L = t->ndat.ndesc+1;
+	SEXP Radtab = PROTECT(allocMatrix(INTSXP, L, 2));
+	vwphi_paradr(t, INTEGER(Radtab), L);
+	UNPROTECT(1);
+	return Radtab;
+}
+
+void my_rchkusr(void *dummy) { (void)dummy; R_CheckUserInterrupt(); }
+int my_rchk() { return !(R_ToplevelExec(my_rchkusr, NULL)); }
+
+/* Construct our linked-list-style tree structure out of ape's tree$edge table,
+   a table of trait values, and a table of trait dimensions.
+ */
+SEXP Rnewnode(SEXP edges, SEXP xtab, SEXP dimtab) {
+	int *e, *d=0;	           /* C table for edges, dimtab. */
+	int n;			   /* Number of nodes including root */
+	int m;			   /* Number of leaves including root */
+	struct node **nra;	   /* Node pointers with random access.
+				      Invariant: nra[j] points to node with our ID j */
+	int j;
+	struct node *p, *t;
+	
+	protdpth = -1;
+	e = INTEGER(edges);
+	n = length(edges) / 2 + 1;
+	d = INTEGER(dimtab);
+	if (! (nra = calloc(n, sizeof(void*)))) goto NRAFAIL;
+	if (! (p = newnode(e[0]-1, d[e[0]-1]))) goto MEMFAIL; /* Allocate the root */
+	p->u.rbk.nparam = 0;
+	p->u.rbk.xavail = 0;
+	p->u.rbk.hessflat = NULL;
+	nra[e[0]-1] = p;
+	j=0; do {    /*  Invariant: nra[e[j+1]-1] == NULL.  (child is newly encountered)  */
+		if (!nra[e[j]-1]) {
+			if (! (p = newnode(e[j]-1, d[e[j]-1]))) goto MEMFAIL;
+			nra[e[j]-1] = p;
+		}
+		if (! (p = newnode(e[j+1]-1, d[e[j+1]-1]))) goto MEMFAIL;
+		nra[e[j+1]-1] = p;
+		if (! nra[e[j]-1]->chd) nra[e[j]-1]->chd = nra[e[j+1]-1];
+		else {
+			for (t = nra[e[j]-1]->chd; t->nxtsb; t = t->nxtsb);
+			t->nxtsb = nra[e[j+1]-1];
+		}
+	} while ((j+=2)<=2*n-3); /* Invariant: j+2 points to next row if exists. Of course, j <= (2n-2)-1 = 2n-3 if so. */
+	if (!isNull(xtab)) {     /* Fill in the X's when available. */
+		nra[e[0]-1]->u.rbk.xavail = 1;
+		m = length(xtab);
+		j=0; do if (e[j+1] <= m) {   /* Fill in the trait (x) if it were a tip  */
+				if (! (nra[e[j+1]-1]->ndat.x = malloc(sizeof(double)*nra[e[j+1]-1]->ndat.ku)))
+					goto MEMFAIL;
+				memcpy(nra[e[j+1]-1]->ndat.x, REAL(VECTOR_ELT(xtab, e[j+1]-1)),
+				       nra[e[j+1]-1]->ndat.ku * sizeof(double));
+			} while ((j+=2)<=2*n-3);
+	}
+	fillhidx(nra, e, n, e[0]-1);
+	t = nra[e[0]-1];
+	free(nra);
+	fillndesc(t);
+	return Rwrapnode(t);
+MEMFAIL:
+	RUPROTERR(("Rnewnode(): Failed to allocate memory"));
+NRAFAIL:  
+	RUPROTERR(("Rnewnode(): Failed to allocate memory"));
+	return R_NilValue;	/* Stop GCC from bitching. */
+}
+
+/* Clone a tree skeleton from an existing tree. The new tree contains nothing
+   but a basic topology, ID, ndat.ku and rbk, hnbk; similar to Rnewnode.
+   Tip values of the resulting tree are NULL. */
+struct node *sktrcpywk(struct node *t);
+struct node *sktrcpy(struct node *t) {
+	struct node *tnew;
+	if (!(tnew=newnode(t->id, t->ndat.ku))) RUPROTERR(("sktrcpywk(): Failure allocating memory"));
+	tnew->u.rbk.nparam =t->u.rbk.nparam;	tnew->u.rbk.xavail =0;
+	tnew->ndat.ndesc   =t->ndat.ndesc;
+	tnew->chd          =sktrcpywk(t->chd);	tnew->nxtsb =sktrcpywk(t->nxtsb);
+	return tnew;
+}
+struct node *sktrcpywk(struct node *t) {
+	struct node *tnew;
+	if (!t) return NULL;
+	if (!(tnew=newnode(t->id, t->ndat.ku))) RUPROTERR(("sktrcpywk(): Failure allocating memory"));
+	tnew->u.hnbk.Phi=t->u.hnbk.Phi;	tnew->u.hnbk.w   =t->u.hnbk.w;
+	tnew->u.hnbk.V  =t->u.hnbk.V;	tnew->ndat.ndesc =t->ndat.ndesc;
+	tnew->chd = sktrcpywk(t->chd);	tnew->nxtsb = sktrcpywk(t->nxtsb);
+	return tnew;
+}
+SEXP R_clone_tree(SEXP Rctree) {
+	protdpth = -1;
+	return Rwrapnode(sktrcpy((struct node *)R_ExternalPtrAddr(Rctree)));
+}
+
+size_t difftmp(struct node *t, void *wsp, int kv) {
+	size_t nbytes=0;
+	if (kv != 0) {
+#define KU (t->ndat.ku)
+#define MAKETEMP(Y,SIZ)     t->ndat.Y=(void*)((char*)wsp+nbytes); nbytes+=(SIZ)*sizeof(double);
+		MAKETEMP(a,      KU);          MAKETEMP(HPhi,    KU*kv);     MAKETEMP(Lamb,   KU*KU);  MAKETEMP(dodv,    kv*kv*KU*KU);
+		MAKETEMP(dodphi, kv*kv*KU*kv); MAKETEMP(dgamdv,  kv*KU*KU);  MAKETEMP(dgamdw, kv*KU);  MAKETEMP(dgamdphi,kv*KU*kv);
+		MAKETEMP(dcdw,   KU);          MAKETEMP(dcdv,    KU*KU);     MAKETEMP(dddv,   KU*KU);
+		dcalloc(t->ndat.dlikdv, KU*(KU+1+kv), MEMFAIL);
+		t->ndat.dlikdw   = t->ndat.dlikdv + KU*KU;
+		t->ndat.dlikdphi = t->ndat.dlikdw + KU;
+#undef MAKE
+		dzero(wsp, 2*(KU) + 3*(KU)*(KU) + 2*(KU)*kv + (KU)*(KU)*kv + (KU)*kv*kv + (KU)*(KU)*kv*kv + (KU)*kv*kv*kv);
+	}
+#undef KU
+	for (struct node *p = t->chd; p; p = p->nxtsb) nbytes += difftmp(p, (char*)wsp+nbytes, t->ndat.ku);
+	return nbytes;
+MEMFAIL:
+	RUPROTERR(("difftmp: failed to allocate memory"));
+}
+
+size_t hesstmp(struct node *t, void *wsp, int kv) {
+	size_t nbytes=0;
+#define KU (t->ndat.ku)
+#define MAKE(Y,SIZ)  t->ndat.Y=(void*)((char*)wsp+nbytes); nbytes+=(SIZ)*sizeof(double);
+	if (kv != 0) {
+		MAKE(H, KU*KU);
+		MAKE(b, KU);
+	}
+	MAKE(so,   KU*KU); MAKE(sgam,KU);
+	MAKE(sc,   1);     MAKE(invV, KU*KU);
+	dzero(wsp, 3*KU*KU+ 2*KU*KU + 1);
+#undef MAKE
+#undef KU
+	for (struct node *p = t->chd; p; p = p->nxtsb) nbytes += hesstmp(p, (void*)((char*)wsp+nbytes), t->ndat.ku);
+	return nbytes;
+}
+
+int allocdfqk(int kr, int knu, int knv, int kmu, int kmv, struct dfdqdk* D) {
+	D->R = malloc((knu*kr*kmu*kmu + knu*kr*kmu*kmv + knu*kmu*kmu + knu*kmu*kmv
+		       + knu*kmu + knu*knu*kmu*kmu + knu*knu*kmu*kmv + knu*kr + knu) * sizeof(double));
+	D->kr  = kr;
+	D->knu = knu;
+	D->knv = knv;
+	D->kmu = kmu;
+	D->kmv = kmv;
+	if (!(D->R)) return 0;
+	return 1;
+}
+void deldfqk(struct dfdqdk* D) { free(D->R); }
+
+
+SEXP Rlistelem(SEXP Rlist, const char *key) {
+    SEXP names = getAttrib(Rlist, R_NamesSymbol);
+    int i=0;
+    while (i<length(names) && strcmp(CHAR(STRING_ELT(names,i)), key)) ++i;
+    return (i==length(Rlist)) ? R_NilValue : VECTOR_ELT(Rlist, i);
+}
+
+size_t getvwphi_listnum(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
+	SEXP VwPhi;
+	(void)wsp; (void)lwsp;
+	VwPhi = VECTOR_ELT(Rlist, t->id);
+	if (V)	    *V =REAL(VECTOR_ELT(VwPhi, 0));
+	if (w)	    *w =REAL(VECTOR_ELT(VwPhi, 1));
+        if (Phi)  *Phi =REAL(VECTOR_ELT(VwPhi, 2));
+	return 0;
+}
+size_t getvwphi_liststr(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
+	SEXP VwPhi;
+	(void)wsp; (void)lwsp;
+	VwPhi = VECTOR_ELT(Rlist, t->id);
+	if (V)	    *V =REAL(Rlistelem(VwPhi,"V"));
+	if (w)	    *w =REAL(Rlistelem(VwPhi,"w"));
+        if (Phi)  *Phi =REAL(Rlistelem(VwPhi,"Phi"));
+	return 0;
+}
+
+/* Need to return -1 if failed */
+size_t getvwphi_vec(SEXP Rvec, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
+	double *par;
+	(void) lwsp;
+	size_t nbytes=0;
+	par = REAL(Rvec);
+	if (V) {
+		sylgecpy_(wsp, par + t->u.hnbk.V, &(t->ndat.ku));
+		nbytes = (t->ndat.ku)*(t->ndat.ku)*sizeof(double);
+		*V = wsp;
+	}
+	if (w)	    *w = par + t->u.hnbk.w;
+        if (Phi)  *Phi = par + t->u.hnbk.Phi;
+	return nbytes;
+}
+
+typedef size_t (*fn_node2siz)(struct node *t, int);
+size_t nd_node2siz (struct node *t, int kv) {
+	return (t->ndat.x ? (t->ndat.ku)*(t->ndat.ku) : 2+(t->ndat.ku)*(1+2*t->ndat.ku))*sizeof(double);
+}
+size_t h_node2siz (struct node *t, int kv) {
+	size_t nd;
+	nd = nd_node2siz(t, kv);
+	return (nd<DFQKSIZ*2)?DFQKSIZ*2:nd;
+}
+
+size_t difftmp_node2siz (struct node *t, int kv) {
+	return (2*(t->ndat.ku) + 3*(t->ndat.ku)*(t->ndat.ku) +
+		 2*(t->ndat.ku)*kv + (t->ndat.ku)*(t->ndat.ku)*kv + (t->ndat.ku)*kv*kv +
+		 (t->ndat.ku)*(t->ndat.ku)*kv*kv + (t->ndat.ku)*kv*kv*kv)
+		* sizeof(double);
+}
+size_t hessdifftmp_node2siz (struct node *t, int kv) {
+	return difftmp_node2siz(t, kv) + (
+		3*(t->ndat.ku)*(t->ndat.ku)+2*(t->ndat.ku)+1 +  /* In hesstmp() */
+		(t->ndat.x ? (t->ndat.ku)*kv+(t->ndat.ku) : (t->ndat.ku)*(4*(t->ndat.ku)+(1+kv)))    /* In fillhnbk() */
+		)*sizeof(double);
+}
+
+void stack_siz (struct node *t, int kv, size_t swsp, size_t *lwsp, fn_node2siz nbytes) {
+	size_t N;
+	if(*lwsp < (swsp += (N = nbytes(t, kv)))) *lwsp+=N;
+	for (struct node *p = t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, swsp, lwsp, nbytes);
+}
+void stack_siz_fixed (struct node *t, size_t swsp, size_t *lwsp, size_t nbytes) {
+	size_t N;
+	if(*lwsp < (swsp += (N = nbytes))) *lwsp+=N;
+	for (struct node *p = t->chd; p; p=p->nxtsb) stack_siz_fixed(p, swsp, lwsp, nbytes);
+}
+void sumnode_siz (struct node *t, int kv, size_t *lwsp, fn_node2siz nbytes) {
+	*lwsp += nbytes(t, kv);
+	for (struct node *p = t->chd; p; p=p->nxtsb) sumnode_siz(p, t->ndat.ku, lwsp, nbytes);
+}
+void sumnode_siz_fixed (struct node *t, int kv, size_t *lwsp, size_t nbytes) {
+	*lwsp += (1+t->ndat.ndesc) * nbytes;
+}
+
+
+#define CGODBYTES(KU) ((KU)*(KU+1)+2)*sizeof(double)
+#define ZEROCGOD(WSP, PTR_C, PTR_GAM, PTR_O, PTR_D, KU) {	  \
+		PTR_C= (double*)(WSP);                    PTR_D= (double*)PTR_C+1; \
+		PTR_GAM= (double*)PTR_D+1;     PTR_O= (double*)PTR_GAM+KU; \
+		*((double*)PTR_C)=0;           *((double*)PTR_D)=0;	\
+		dzero(PTR_GAM, (KU));          dzero(PTR_O, (KU)*(KU));	\
+	}
+
+DEF_TCGOD(c_dtcgod) {
+	dtcgod_(v, w, phi, t->ndat.x, &kv, &(t->ndat.ku), c, gam, o, d, t->ndat.dodv, t->ndat.dodphi, t->ndat.dgamdv,
+		t->ndat.dgamdw, t->ndat.dgamdphi, t->ndat.dcdw, t->ndat.dcdv, t->ndat.dddv, info);
+}
+DEF_TCGOD(c_htcgod) {
+	htcgod_(v, w, phi, t->ndat.x, &kv, &(t->ndat.ku), c, gam, o, d, t->ndat.invV, t->ndat.b, t->ndat.dodv, t->ndat.dodphi,
+		t->ndat.dgamdv, t->ndat.dgamdw, t->ndat.dgamdphi, t->ndat.dcdw, t->ndat.dcdv, t->ndat.dddv, info);
+}
+DEF_TCGOD(c_ndtcgod) {
+	ndtcgod_(v, w, phi, t->ndat.x, &kv, &(t->ndat.ku), c, gam, o, d, info);
+}
+
+DEF_MERG(c_ndmerg) { ndmerg_(v, w, phi, &(kv), &(t->ndat.ku), c1, gam1, o1, d1, c, gam, o, d, info); }
+DEF_MERG(c_dmerg) { dmerg_(v, w, phi, &(kv), &(t->ndat.ku), c1, gam1, o1, d1, c, gam, o, d,      \
+			   t->ndat.a, t->ndat.HPhi, t->ndat.Lamb, t->ndat.dodv, t->ndat.dodphi,  \
+			   t->ndat.dgamdv, t->ndat.dgamdw, t->ndat.dgamdphi,                     \
+			   t->ndat.dcdw, t->ndat.dcdv, t->ndat.dddv, info); }
+DEF_MERG(c_hmerg) { hmerg_(v, w, phi, &(kv), &(t->ndat.ku), c1, gam1, o1, d1, c, gam, o, d,               \
+			   t->ndat.a, t->ndat.b, t->ndat.invV, t->ndat.H, t->ndat.HPhi, t->ndat.Lamb,     \
+			   t->ndat.dodv, t->ndat.dodphi, t->ndat.dgamdv, t->ndat.dgamdw, t->ndat.dgamdphi,\
+			   t->ndat.dcdw, t->ndat.dcdv, t->ndat.dddv, info); }
+
+void ndphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi) {
+	struct node *p;
+	double *c, *gam, *o, *d;
+	int info;
+	void *wsp;
+	size_t lwsp=0;
+	for (p=t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, 0, &lwsp, &nd_node2siz);
+	lwsp += CGODBYTES(t->ndat.ku);
+	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
+	ZEROCGOD(wsp, c, gam, o, d, t->ndat.ku);
+	for (p = t->chd; p; p = p->nxtsb) {
+		dndgcgod(p, VwPhi_L, t->ndat.ku, c, gam, o, d, get_VwPhi, &c_ndtcgod, &c_ndmerg, wsp, CGODBYTES(t->ndat.ku), lwsp, &info);
+		switch (info) {
+		case -1:
+			free(wsp);
+			RUPROTERR(("*tcgod(): V is numerically non-positive-definite!"));
+		case -2:
+			free(wsp);
+			RUPROTERR(("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!"));
+		case 0:
+			break;
+		default:
+			free(wsp);
+			RUPROTERR(("Unknown error from dndgcgod: a bug in the C code?"));
+		};
+	}
+	phygausslik_(c, gam, o, d, x0, &(t->ndat.ku), &k, lik);
+	free(wsp);
+
+	return;
+MEMFAIL:
+	RUPROTERR(("phylik(): Error allocating memory for c, gamma, Omega, Delta. "));
+}
+
+
+void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi) {
+	struct node *p;
+	int info;
+	double *c, *gam, *o, *d;
+	void *wsp;
+	size_t swsp=0, lwsp=0;
+	for (p=t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, 0, &lwsp, &nd_node2siz);
+	sumnode_siz(t, t->ndat.ku, &lwsp, &difftmp_node2siz);
+	lwsp += CGODBYTES(t->ndat.ku);
+	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
+	swsp += difftmp(t, wsp, 0);
+	ZEROCGOD((char*)wsp+swsp, c, gam, o, d, t->ndat.ku);
+	swsp += CGODBYTES(t->ndat.ku);
+	for (p = t->chd; p; p = p->nxtsb) {
+		dndgcgod(p, VwPhi_L, t->ndat.ku, c, gam, o, d, get_VwPhi, &c_dtcgod, &c_dmerg, wsp, swsp, lwsp, &info);
+		switch (info) {
+		case -1:
+			free(wsp);
+			RUPROTERR(("*tcgod(): V is numerically non-positive-definite!"));
+		case -2:
+			free(wsp);
+			RUPROTERR(("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!"));
+		case 0:
+			break;
+		default:
+			free(wsp);
+			RUPROTERR(("Unknown error from dndgcgod: a bug in the C code?"));
+		};
+	}
+	phygausslik_(c, gam, o, d, x0, &(t->ndat.ku), &k, lik);
+	grad(t, x0);
+	free(wsp);
+	return;
+MEMFAIL:
+	RUPROTERR(("dphylik(): Error allocating memory. "));
+}
+
+void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi, double *hessmem, double *dir, int ndir) {
+	struct node *p;
+	double *d;
+	void *wsp;
+	size_t lwsp=0, swsp=0;
+	int ret, info;
+	for (p=t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, 0, &lwsp, &h_node2siz);
+	sumnode_siz(t, t->ndat.ku, &lwsp, &hessdifftmp_node2siz);
+	lwsp += sizeof(double);
+	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
+	swsp += difftmp(t, wsp, 0);
+	swsp += hesstmp(t, (char*)wsp+swsp, 0);
+	d=(void*)((char*)wsp+swsp);
+	*d=0;
+	swsp += sizeof(double);
+	for (p = t->chd; p; p = p->nxtsb) {
+		hgcgod(p, VwPhi_L, t->ndat.ku, t->ndat.sc, t->ndat.sgam, t->ndat.so, d,
+		       get_VwPhi, wsp, swsp, lwsp, &info);
+		switch (info) {
+		case -1:
+			free(wsp);
+			RUPROTERR(("*tcgod(): V is numerically non-positive-definite!"));
+		case -2:
+			free(wsp);
+			RUPROTERR(("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!"));
+		case 0:
+			break;
+		default:
+			free(wsp);
+			RUPROTERR(("Unknown error from hgcgod: a bug in the C code?"));
+		};
+	}
+	phygausslik_(t->ndat.sc, t->ndat.sgam, t->ndat.so, d, x0, &(t->ndat.ku), &k, lik);
+	grad(t, x0);
+	swsp -= sizeof(double);
+	ret = hess(t, VwPhi_L, x0, get_VwPhi, wsp, swsp, lwsp, hessmem, dir, ndir);
+	free(wsp);
+	switch (ret) {
+	case 3:
+		goto MEMFAIL;
+	case 2:
+		RUPROTERR(("hphylik(): The C stack is not large enough for your problem size."));
+	case 1:
+		RUPROTERR(("hphylik(): Computation interrupted by user."));
+	case 0:
+		;		/* Good. */
+	};
+	return;
+MEMFAIL:
+	RUPROTERR(("hphylik(): Error allocating memory in hphylik()"));
+}
+
+
+void mkdiffbk(struct diffbk *p, int kr, int kb) { /* kr is dim of root and kb the parent. */
+	double *tmp;
+	if(! (tmp = malloc((kr*kb + kb*kb + kb)*sizeof(double))))  goto MEMFAIL;
+	dzero(tmp, kr*kb + kb*kb + kb);
+	p->z = tmp;
+	p->K = tmp + kb;
+	p->F = p->K + kb * kb;
+	return;
+MEMFAIL:
+	RUPROTERR(("mkdiffbk(): Error allocating memory"));
+}
+void freediffbk(struct diffbk *p) { free(p->z); }
+
+void grad(struct node *t, double *x0) {
+	/* Pre-condition: t is the global root. */
+	struct diffbk bk = {0};
+	mkdiffbk(&bk, t->ndat.ku, t->ndat.ku);
+	diagone_(bk.F, &(t->ndat.ku));
+	#pragma omp parallel
+	{
+		#pragma omp master
+		{
+			for (struct node *p = t->chd; p; p = p->nxtsb) {
+				/* The direct children of the root requires different treatment. */
+				ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
+				      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
+				      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
+				for (struct node *q = p->chd; q; q = q->nxtsb)
+					gradwk(q, p, t, x0, bk, t->ndat.ku);
+			}
+		}
+	}
+	freediffbk(&bk);
+}
+void gradwk(struct node *a, struct node *b, struct node *c,
+	    double *x0, struct diffbk bk, int kr) {
+	/* Pre-condition: 1. kr that of the global root.
+	                  2. a is neither the global root nor its direct children
+			  3. c → b → a
+			  4. bk contains F,k, and z of parent */
+	struct diffbk newbk;
+	mkdiffbk(&newbk, kr, b->ndat.ku);
+	fzkdown_(bk.F, bk.z, bk.K, b->ndat.HPhi, b->ndat.a, b->ndat.Lamb, x0,
+		 &(c->ndat.ku), &(b->ndat.ku), &(a->ndat.ku), &kr,
+		 a->ndat.dodv, a->ndat.dodphi, a->ndat.dgamdv, a->ndat.dgamdw, a->ndat.dgamdphi,
+		 a->ndat.dcdw, a->ndat.dcdv, a->ndat.dddv, a->ndat.dlikdv, a->ndat.dlikdw,
+		 a->ndat.dlikdphi, newbk.F, newbk.z, newbk.K);
+	for (struct node *p = a->chd; p; p = p->nxtsb) {
+		#pragma omp task if (p->ndat.ndesc >=30)
+		{
+			gradwk(p, a, b, x0, newbk, kr);
+		}
+	}
+	#pragma omp taskwait
+	freediffbk(&newbk);
+}
+
+int maxdim(struct node *t) {    /* Return maximum no. of dimen. of traits in the tree */
+	int tmp, curmax = t->ndat.ku;
+	for (struct node *p=t->chd; p; p=p->nxtsb)  curmax = (curmax<(tmp=maxdim(p))) ? tmp : curmax;
+	return curmax;
+}
+void freellst(struct llst *l) {
+	struct llst *tmp;
+FREEL:
+	if (!l) return;
+	tmp = l->nxt;
+	free(l);
+	l = tmp;
+	goto FREEL;
+}
+void freellstptr(struct llstptr *l) {
+	struct llstptr *tmp;
+FREEL:
+	if (!l) return;
+	tmp = l->nxt;
+	free(l);
+	l = tmp;
+	goto FREEL;
+}
+
+
+void fillhnbk_wk (struct node *t, SEXP VwPhi_L, int kv, fn_getvwphi get_VwPhi, void *wsp, size_t *swsp, size_t lwsp);
+size_t fillhnbk (struct node *t, SEXP VwPhi_L, fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp) {
+	size_t orig_swsp = swsp;
+	for (struct node *p = t->chd; p; p = p->nxtsb)
+		fillhnbk_wk(p, VwPhi_L, t->ndat.ku, get_VwPhi, wsp, &swsp, lwsp);
+	return swsp - orig_swsp;
+}
+void fillhnbk_wk (struct node *t, SEXP VwPhi_L, int kv, fn_getvwphi get_VwPhi, void *wsp, size_t *swsp, size_t lwsp) {
+	double *w, *Phi, *tmp;
+	get_VwPhi(VwPhi_L, t, kv, NULL, &w, &Phi, (char*)wsp+*swsp, lwsp-*swsp);
+#define KU (t->ndat.ku)
+	if (t->ndat.x) {
+		t->u.hnbk.u.hsbktip.invVPhi = (void*)((char*)wsp+*swsp);   *swsp+=(KU*kv+KU)*sizeof(double);
+		t->u.hnbk.u.hsbktip.invVxw  = t->u.hnbk.u.hsbktip.invVPhi + KU*kv;
+		dzero(t->u.hnbk.u.hsbktip.invVPhi, KU*kv+KU);
+		hselfbktip_(t->ndat.invV, t->ndat.x, w, Phi, &kv, &KU,
+			    t->u.hnbk.u.hsbktip.invVPhi, t->u.hnbk.u.hsbktip.invVxw);
+	} else {
+		/* Maybe we can save some memory here? */
+		tmp = (void*)((char*)wsp+*swsp);    *swsp+=(KU*(3*KU+(1+kv)))*sizeof(double);
+		t->u.hnbk.u.hsbkgen.invVLsO    = tmp;    tmp += KU*KU;
+		t->u.hnbk.u.hsbkgen.invVLsOPhi = tmp;    tmp += KU*kv;
+		t->u.hnbk.u.hsbkgen.VmVLV      = tmp;    tmp += KU*KU;
+		t->u.hnbk.u.hsbkgen.invVLb     = tmp;    tmp += KU;
+		t->u.hnbk.u.hsbkgen.Hto        = tmp;
+		hselfbkgen_(t->ndat.invV, t->ndat.Lamb, t->ndat.so, Phi, t->ndat.b, t->ndat.H,
+			    &kv, &KU, t->u.hnbk.u.hsbkgen.invVLsO, t->u.hnbk.u.hsbkgen.invVLsOPhi,
+			    t->u.hnbk.u.hsbkgen.VmVLV, t->u.hnbk.u.hsbkgen.invVLb, t->u.hnbk.u.hsbkgen.Hto);
+	}
+	for (struct node *p = t->chd; p; p = p->nxtsb)
+		fillhnbk_wk(p, VwPhi_L, KU, get_VwPhi, (char*)wsp, swsp, lwsp);
+#undef KU
+}
+
+static double *thrpv_bilinmat;	/* Thread-private. Only used in online bilinear form updates (that is, when dir is non-NULL). */
+#pragma omp threadprivate(thrpv_bilinmat)
+
+int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *wsp, size_t swsp,
+	 size_t lwsp, double *extrmem, double *dir, int ndir) {
+	/* Pre-condition: t is the global root. */
+	struct hessglbbk gbk;	/* Notice this is on the stack. */
+	int ictx,i,j,m,n, wkret;
+
+#define NHESS (((t->u.rbk.nparam) * ((t->u.rbk.nparam)+1))/2)
+	if (!dir) {		/* If dir is non-null then extrmem holds a ndir*ndir matrix, already allocated in R-managed memory */
+		if (extrmem) {
+			if ((t->u.rbk.hessflat_needs_free) && (t->u.rbk.hessflat))
+				free(t->u.rbk.hessflat);
+			t->u.rbk.hessflat = extrmem;
+			t->u.rbk.hessflat_needs_free = 0;
+		} else {
+			if (!(t->u.rbk.hessflat)) {
+				if (!(t->u.rbk.hessflat= malloc(NHESS*sizeof(double))))
+					goto MEMFAIL;
+				t->u.rbk.hessflat_needs_free = 1;
+			}
+		}
+		dzero(t->u.rbk.hessflat, (size_t)(NHESS));
+	} else {
+		if ((t->u.rbk.hessflat_needs_free) && (t->u.rbk.hessflat))
+			free(t->u.rbk.hessflat);
+		t->u.rbk.hessflat = extrmem;
+		t->u.rbk.hessflat_needs_free = 0;
+	}
+	
+#undef NPARAM
+	swsp += fillhnbk(t, VwPhi_L, get_VwPhi, wsp, swsp, lwsp);
+	for (struct node *p = t->chd; p; p = p->nxtsb) { /* The direct children of the root needs special treatment */
+		double *w;
+		get_VwPhi(VwPhi_L, p, t->ndat.ku, NULL, &w, NULL, (char*)wsp+swsp, lwsp-swsp);
+		ictx = IVV;
+		//printf("NODE_ID: %d-%d  (A)\n", p->id+1, p->id+1);
+		for (n=1; n <= p->ndat.ku; ++n)
+			for (m=n; m <= p->ndat.ku; ++m) {
+				i=m; j=n;
+			DOCOL:
+				while (i <= p->ndat.ku)  hessselftop(p, t->ndat.ku, ictx,i++,j,m,n,x0,t, t->u.rbk.hessflat,dir,ndir);
+				if ((++j) <= p->ndat.ku) {
+					i = j;
+					goto DOCOL;
+				}
+			}
+		ictx = IVPHI;
+		for (n=1; n <= t->ndat.ku; ++n) for (m=1; m <= p->ndat.ku; ++m)
+			for (j=1; j <= p->ndat.ku; ++j)	for (i=j; i <= p->ndat.ku; ++i)
+				hessselftop(p, t->ndat.ku, ictx, i,j,m,n,x0,t, t->u.rbk.hessflat,dir,ndir);
+		ictx = IVW;
+		for (m=1; m <= p->ndat.ku; ++m)   for (j=1; j <= p->ndat.ku; ++j)   for (i=j; i <= p->ndat.ku; ++i)
+			hessselftop(p, t->ndat.ku, ictx, i,j,m,n,x0,t, t->u.rbk.hessflat,dir,ndir);
+		ictx = IPHIPHI;
+		for (n=1; n <= t->ndat.ku; ++n)
+			for (m=1; m <= p->ndat.ku; ++m) {
+				i=m; j=n;
+			DOCOL2:
+				while (i <= p->ndat.ku)  hessselftop(p, t->ndat.ku, ictx,i++,j,m,n,x0,t, t->u.rbk.hessflat,dir,ndir);
+				if ((++j) <= t->ndat.ku) {
+					i=1;
+					goto DOCOL2;
+				}
+			}
+		ictx = IPHIW;
+		for (m=1; m <= p->ndat.ku; ++m)   for (j=1; j <= t->ndat.ku; ++j)   for (i=1; i <= p->ndat.ku; ++i)
+			hessselftop(p, t->ndat.ku, ictx,i,j,m,n,x0,t, t->u.rbk.hessflat,dir,ndir);
+		ictx = IWW;
+		for (m=1; m <= p->ndat.ku; ++m)   for (i=m; i <= p->ndat.ku; ++i)
+			hessselftop(p, t->ndat.ku, ictx,i,j,m,n,x0,t, t->u.rbk.hessflat,dir,ndir);
+
+		if (!(p->ndat.x)) { /* Compute cross second derivatives of the node itself and all of its descendants */
+			struct dfdqdk *dfqk1new_ch;
+			struct {
+				int kv;
+				struct node *n, *p;
+				struct dfdqdk *dfqk1_ch;
+				struct dfdqdk *dfqk1new_ch;
+			} *stdesc, curdesc;
+			int j;
+			if (! (dfqk1new_ch = calloc(DFQKSIZ,1)))                                                  goto MEMFAIL;
+			if ( !allocdfqk(t->ndat.ku, p->ndat.ku, p->ndat.ku, p->ndat.ku, t->ndat.ku, dfqk1new_ch)) goto MEMFAIL;
+			/* If it's a tip then invVLsOPhi isn't defined. */
+			dfqk_mmp1_(dfqk1new_ch, p->ndat.H, p->ndat.HPhi, w, p->ndat.a, p->ndat.Lamb,
+				   p->ndat.invV, p->u.hnbk.u.hsbkgen.invVLsOPhi, &(p->ndat.ku), &(t->ndat.ku));
+			if (!(stdesc = malloc(sizeof(*stdesc) * 50*1024*1024))) {
+				deldfqk(dfqk1new_ch);
+				free(dfqk1new_ch);
+				goto MEMFAIL;
+			}
+			for (struct node *n = p->chd; n; n = n->nxtsb) {
+				curdesc.kv=p->ndat.ku;  curdesc.n=n;  curdesc.dfqk1_ch = dfqk1new_ch;
+				j = 0;
+DOWNDESC:
+				/* HESS_WRITE */
+				if (dir) {
+					//printf("NODE_ID: %d-%d  (B)\n", curdesc.n->id+1, p->id+1);
+					tntmdir_(&(t->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1_ch,
+						 curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
+						 curdesc.n->ndat.dgamdphi, x0, extrmem, dir, &ndir, &(t->u.rbk.nparam), &(p->u.hnbk.Phi), &(p->u.hnbk.V),
+						 &(p->u.hnbk.w), &(curdesc.n->u.hnbk.Phi), &(curdesc.n->u.hnbk.V), &(curdesc.n->u.hnbk.w));
+				} else {
+					tntm_(&(t->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1_ch,
+					      curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
+					      curdesc.n->ndat.dgamdphi, x0, t->u.rbk.hessflat, &(t->u.rbk.nparam), &(p->u.hnbk.Phi), &(p->u.hnbk.V),
+					      &(p->u.hnbk.w), &(curdesc.n->u.hnbk.Phi), &(curdesc.n->u.hnbk.V), &(curdesc.n->u.hnbk.w));
+				}
+				if (curdesc.n->chd) {
+					if (! (curdesc.dfqk1new_ch = calloc(DFQKSIZ,1))) goto MEMFAIL;
+					if (! allocdfqk(t->ndat.ku, curdesc.n->ndat.ku, curdesc.kv,
+							p->ndat.ku, t->ndat.ku, curdesc.dfqk1new_ch)) goto MEMFAIL;
+					tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a, &(t->ndat.ku), &(curdesc.kv),
+						&(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1new_ch);
+					for (curdesc.p = curdesc.n->chd; curdesc.p; curdesc.p = curdesc.p->nxtsb) {
+						if (j >= 50*1024*1024)             goto STACKFAIL;
+						stdesc[j++] = curdesc;
+						curdesc.kv=curdesc.n->ndat.ku;  curdesc.dfqk1_ch=curdesc.dfqk1new_ch;
+						curdesc.n =curdesc.p;           curdesc.p=NULL;
+						curdesc.dfqk1new_ch=NULL;
+						goto DOWNDESC;
+UPDESC:
+						curdesc = stdesc[--j];
+					}
+					deldfqk(curdesc.dfqk1new_ch);
+					free(curdesc.dfqk1new_ch);
+				}
+				if (j) goto UPDESC;
+			}
+			free(stdesc);
+			deldfqk(dfqk1new_ch);
+			free(dfqk1new_ch);
+		}
+		initgbk(&gbk, t, p, maxdim(t));
+		wkret = 0;
+		#pragma omp parallel shared(wkret)
+		{
+			thrpv_bilinmat = NULL;
+			if (dir) {
+				if (! (thrpv_bilinmat = malloc(ndir * ndir * sizeof(double)))) {
+					__ATOMIC_WRITE__
+					wkret = 3;
+				} else {
+					dzero(thrpv_bilinmat, ndir*ndir);
+				}
+			}
+			#pragma omp barrier
+			/* If some threads failed their allocation then all threads should finish itself up, ending the parallel region.  */
+			if (wkret == 3) goto END_THREAD;
+			#pragma omp master
+			{
+				int interrupted = 0;
+				for (struct node *q = p->chd; q; q = q->nxtsb) {
+					wkret=hessglobwk(q, p, &gbk, x0, t, VwPhi_L, get_VwPhi, wsp, swsp, lwsp, &interrupted, extrmem, dir, ndir);
+					if (wkret || interrupted) break;
+				}
+				/* Now wait for everything to finish... */
+				#pragma omp taskwait
+			}
+			#pragma omp barrier
+			if (dir) {
+				#pragma omp critical 
+				{
+					for (int k=0; k<ndir*ndir; ++k) {
+						extrmem[k] = extrmem[k] + thrpv_bilinmat[k];
+					}
+				}
+			}
+END_THREAD:
+			if (thrpv_bilinmat) free(thrpv_bilinmat);
+		}
+		delgbk(gbk);
+		if (wkret) break;
+	} /* for struct node *p... */
+	return wkret;
+MEMFAIL:
+	return 3;
+STACKFAIL:
+	return 2;
+}
+
+void delgbk(struct hessglbbk gbk) {
+	freellst(gbk.fmlfm);    freellst(gbk.qm);
+	freellst(gbk.fm);	freellstptr(gbk.a);
+}
+void initgbk(struct hessglbbk *gbk, struct node *rt, struct node *p, int maxdim) {
+	gbk->mdim = maxdim;
+	if ( !(gbk->fmlfm = calloc(1, sizeof(struct llst) + gbk->mdim*gbk->mdim*sizeof(double))) /* Yes, use mdim */
+	     || !(gbk->fm = calloc(1, sizeof(struct llst) + gbk->mdim*gbk->mdim*sizeof(double)))
+	     || !(gbk->qm = calloc(1, sizeof(struct llst) + gbk->mdim * sizeof(double)))
+	     || !(gbk->a  = calloc(1, sizeof(struct llstptr))))
+		goto MEMFAIL;
+	gbk->fmlfm->siz = p->ndat.ku;     /* Note that `siz` has different interpretations */
+	gbk->qm->siz    = p->ndat.ku;
+	gbk->fm->siz    = rt->ndat.ku;    /* Store the second dimension cus the first is always passed around */
+	gbk->a->siz     = p->ndat.ku;
+	gbk->a->dat     = p->ndat.a;
+	memcpy(gbk->fmlfm->dat, p->ndat.Lamb, (p->ndat.ku)*(p->ndat.ku)  * sizeof(double));
+	memcpy(gbk->qm->dat,    p->ndat.a,    (p->ndat.ku)               * sizeof(double));
+	memcpy(gbk->fm->dat,    p->ndat.HPhi, (p->ndat.ku)*(rt->ndat.ku) * sizeof(double));
+	return;
+MEMFAIL:
+	RUPROTERR(("initgbk(): Error allocating memory for internal book-keeping."));
+}
+
+void llstcpy(struct llst **dst, const struct llst *src, int blksiz) {
+	int siz = sizeof(struct llst) + blksiz*sizeof(double);
+AGAIN:
+	*dst = malloc(siz);
+	if (! *dst) goto MEMFAIL;
+	memcpy(*dst, src, siz);
+	if (src->nxt) {
+		dst = &((*dst)->nxt);
+		src = src->nxt;
+		goto AGAIN;
+	}
+	return;
+MEMFAIL:
+	RUPROTERR(("llstcpy(): Error allocating memory."));
+}
+void llstptrcpy(struct llstptr **dst, const struct llstptr *src) {
+	for (;;) {
+		*dst = malloc(sizeof(struct llstptr));
+		if (! *dst) goto MEMFAIL;
+		memcpy(*dst, src, sizeof(struct llstptr));
+		if (! src->nxt) return;
+		dst = &((*dst)->nxt);
+		src = src->nxt;
+	}
+MEMFAIL:
+	RUPROTERR(("llstptrcpy(): Error allocating memory."));
+}
+void gbkcpy(struct hessglbbk **dst, const struct hessglbbk *src) {
+	*dst = malloc(sizeof(struct hessglbbk));
+	if (! *dst) goto MEMFAIL;
+	llstcpy    (&((*dst)->fmlfm), src->fmlfm, (src->mdim)*(src->mdim));
+	llstcpy    (&((*dst)->fm),    src->fm,    (src->mdim)*(src->mdim));
+	llstcpy    (&((*dst)->qm),    src->qm,    src->mdim);
+	llstptrcpy (&((*dst)->a),     src->a);
+	(*dst)->mdim = src->mdim;
+	return;
+MEMFAIL:
+	RUPROTERR(("gbkcpy(): Error allocating memory."));
+}
+
+/* BOTTLE NECK */
+/* Compute Hessians of parameters of outside-m's subtree wrt to m */
+void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_ancestry,
+		 void *pv_starters, int pv_kv, int pv_promise_id, int pv_mdim, int *interrupted, double *extrmem, double *dir, int ndir) {
+	/* Performance note:
+
+	   1. Putting the parallelisation pragma at the for loop below will slow down the compuation by half.
+	   2. I have no idea why PGI sucks so much with this piece of code. Usually PGI is quite fast,
+	      but at least the numerical output is correct and precise.
+
+	*/
+	for (int k=0; k < pv_i; ++k) {          /* Now run the recursion for each k (for each beta, that is) */
+		struct {                        /* States of the inner stack */
+			int kv;
+			struct node *n, *p;
+			struct dfdqdk *dfqk1_ch;
+			struct dfdqdk *dfqk1new_ch;
+		} *stalpha;                        /* Each k has different stack states */
+		struct {
+			size_t hessptr;
+			struct node *n;
+			int knv;
+			size_t lblk;
+		} *pushback;
+		size_t lpushback; size_t pushbackptr;
+		double *hessmem; size_t lhessmem; size_t lblk; size_t hessptr;
+		int q, yes;
+		struct node *z;
+		size_t swsp_a, lwsp_a;
+		void *wsp_a = NULL;
+		int c, b;
+
+		lpushback = 0; pushbackptr = 0;
+		lhessmem = 0; lblk = 0; hessptr = 0;
+
+		swsp_a=0; lwsp_a=0;
+		/* SLOW: THIS LOOP IS MONSTROUS */
+		stack_siz_fixed(pv_ancestry[k], 0, &lwsp_a, sizeof(*stalpha));
+		swsp_a += lwsp_a;
+		lwsp_a = 0;
+		stack_siz_fixed(pv_ancestry[k], 0, &lwsp_a, DFQKSIZ+sizeof(*stalpha));
+#define PAIR_HESS_SIZE(KNV,KNU,KMV,KMU) (((KNU*(KNU+1))/2)*((KMU*(KMU+1))/2)+ KNV*KNU*((KMU*(KMU+1))/2) + KNU*(KMU*(KMU+1))/2 +\
+					 ((KNU*(KNU+1))/2)* KMV*KMU         + KNV*KNU*KMV*KMU           + KNU*KMV*KMU         +\
+					 ((KNU*(KNU+1))/2)* KMU             + KNV*KNU*KMU               + KNU*KMU)
+		sumnode_siz_fixed(pv_ancestry[k], 0, &lhessmem,
+				  sizeof(double)*PAIR_HESS_SIZE(pv_mdim,pv_mdim,pv_mdim,pv_mdim));
+		lwsp_a += lhessmem;
+		sumnode_siz_fixed(pv_ancestry[k], 0, &lpushback, sizeof(*pushback));
+		lwsp_a += lpushback;
+		lwsp_a = lwsp_a;
+		/* In C11, POSIX.1-2008, glibc >= 2.15, musl, and Microsoft, malloc() and free() is thread safe.
+		   Everybody is assuming this nowadays. But don't use something like PGI's -Mipa=inline etc.
+		   to mess with the libc binary...  */
+		if (! (wsp_a = malloc(lwsp_a))) return; /* Leaks tiny amount of memory. */
+		stalpha  =wsp_a;
+		hessmem  =(void*)((char*)wsp_a+swsp_a); swsp_a +=lhessmem;
+		pushback =(void*)((char*)wsp_a+swsp_a); swsp_a +=lpushback;
+		/* Start recursion to compute hessian values */
+		stalpha[0].dfqk1_ch = (void*)((char*)wsp_a+swsp_a); swsp_a+=DFQKSIZ;
+		/* 
+		   The POSIX standard says memcpy MUST BE thread-safe:
+		   
+		   https://pubs.opengroup.org/onlinepubs/9699919799/functions/V2_chap02.html#tag_15_09_01
+		   
+		   Microsoft website doesn't say anything about thread safety, but I can't imagine their employees
+		   can write a memcpy() routine using static global tmp variables in that kind of a coorporate
+		   culture... BTW the StackOverflow crowd are funny... :)
+		   
+		   https://stackoverflow.com/questions/15145152/is-memcpy-process-safe
+		 */
+		memcpy(stalpha[0].dfqk1_ch, (char*)pv_starters+DFQKSIZ*k, DFQKSIZ);
+		q = 0;
+		/* Among all beta's children there is one that is identical to the next beta (pv_ancestry[k+1]).
+		   We only loop through children which is at the right-hand-side of the the next beta. Correctness
+		   proof:
+
+		   Denote, respectively, the set of all nodes which is in some of the left, and right, sibling
+		   subtrees of beta in a walk_alpha(global=m, iterate=alpha) as L_ma and R_ma. Note that
+		   L_ma = R_am and L_am = R_ma. Only the pairs {m,alpha} where alpha in R_ma is computed in
+		   walk_alpha(global=m, iterate=alpha), and because R_ma = L_am, the process
+		   walk_alpha(iterate=alpha, global=m) did not touch the pair {m,alpha}. In other words, 
+		   {m,alpha} for alpha in R_ma is visited once and only once. Similarly, {m,alpha} for alpha in L_ma
+		   is not visited by walk_alpha(global=m, iterate=alpha); but it is visited exactly once in 
+		   walk_alpha(global=alpha, iterate=m) because L_ma = R_am. So {m,alpha} is visited exactly once
+		   globally.
+		*/
+		for (z = pv_ancestry[k]->chd; z != pv_ancestry[k+1]; z = z->nxtsb);;
+		for (z = z->nxtsb; z; z = z->nxtsb) {
+			/* Invariants: stalpha[0].dfqk1_ch never changes from before the for loop to after. */
+			stalpha[q].kv = pv_ancestry[k]->ndat.ku; stalpha[q].n = z;
+		DOWNALPHA:			
+#define KR  (pv_rt->ndat.ku)
+#define KNV (stalpha[q].kv)
+#define KNU (stalpha[q].n->ndat.ku)
+#define KMV (pv_kv)
+#define KMU (pv_ancestry[pv_i]->ndat.ku)
+			lblk = PAIR_HESS_SIZE(KNV,KNU,KMV,KMU);
+			if (pushbackptr % 64) {
+				__ATOMIC_READ__
+					yes = *interrupted;
+				if (yes) {
+					free(wsp_a);
+					for (int j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
+					free(pv_starters);
+					free(pv_ancestry);
+					return;
+				}
+			}
+			tntmthrfast_(&KR, &KNV, &KNU, &KMV, &KMU, stalpha[q].dfqk1_ch,
+				     stalpha[q].n->ndat.dodv, stalpha[q].n->ndat.dodphi, stalpha[q].n->ndat.dgamdv, stalpha[q].n->ndat.dgamdw,
+				     stalpha[q].n->ndat.dgamdphi, pv_x0, hessmem+hessptr, &lblk);
+			pushback[pushbackptr].hessptr = hessptr;
+			pushback[pushbackptr].n       = stalpha[q].n;
+			pushback[pushbackptr].knv     = KNV;
+			pushback[pushbackptr].lblk    = lblk;
+			++pushbackptr;
+			hessptr += lblk;					
+			if (stalpha[q].n->chd) {
+				stalpha[q].dfqk1new_ch = (void*)((char*)wsp_a+swsp_a); swsp_a+=DFQKSIZ;
+				allocdfqk(pv_rt->ndat.ku, stalpha[q].n->ndat.ku, stalpha[q].kv,
+					  pv_ancestry[pv_i]->ndat.ku, pv_kv, stalpha[q].dfqk1new_ch);
+				tndown_(stalpha[q].dfqk1_ch, stalpha[q].n->ndat.HPhi, stalpha[q].n->ndat.a,
+					&(pv_rt->ndat.ku), &(stalpha[q].kv), &(stalpha[q].n->ndat.ku),
+					&pv_kv, &(pv_ancestry[pv_i]->ndat.ku), stalpha[q].dfqk1new_ch);
+				/* 
+				   PGI 2019 Compiler bug
+				   ---------------------
+
+				   If you put `stalpha[q].p = stalpha[q].n->chd` inside the for loop initialiser instead of
+				   in an ugly separate line, the assembly will spit out non-sense like this:
+					   
+				   %z = alloca %struct.node*, align 8
+				   %yes = alloca i32, align 4
+				   %p = alloca void
+				   %c = alloca i32, align 4
+				   %b = alloca i32, align 4
+					   
+				   `%p = alloca void`... You know what the compiler wants...
+				*/
+				stalpha[q].p = stalpha[q].n->chd;
+				for (; stalpha[q].p; stalpha[q].p = stalpha[q].p->nxtsb) {
+					c = q++;
+					stalpha[q].kv= stalpha[c].n->ndat.ku;   stalpha[q].dfqk1_ch= stalpha[c].dfqk1new_ch;
+					stalpha[q].n = stalpha[c].p;            stalpha[q].p = NULL;
+					stalpha[q].dfqk1new_ch = NULL;
+					goto DOWNALPHA;
+				UPALPHA:
+					--q;
+				}
+				deldfqk(stalpha[q].dfqk1new_ch);
+				swsp_a-=DFQKSIZ;
+			}
+			if (q) goto UPALPHA;
+		}
+		/* Start copying the hessian values back into the R array.
+		   Why am I locking the block instead of locking only hessmem? Because of this:
+
+		   https://community.intel.com/t5/Intel-C-Compiler/Segfault-in-omp-destroy-lock/td-p/885187?profile.language=ja
+
+		   Yes, the bug report was 10 years ago. If you use Intel CC with Intel OpenMP this bug has indeed been fixed.
+		   But if you call Intel OpenMP from clang then the bug is still there on my computer in 2020. Not sure if this
+		   should be called a clang bug or an Intel bug.
+		 */
+//		#pragma omp critical
+//		{
+			for (b = 0; b < pushbackptr; ++b) {
+				/* HESS_WRITE */
+				if (dir) {
+					/* If we update the bilinear forms on-the-fly instead of storing the whole Hessian, each of these
+					   writes will race with tmtmdir_() and tntmdir_() in the master threads.
+					 */
+					// printf("NODE_ID: %d-%d  (C)\n", pv_ancestry[pv_i]->id+1, pushback[b].n->id+1);
+					tntmcpydir_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
+						    thrpv_bilinmat, dir, &ndir, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
+						    &(pv_ancestry[pv_i]->u.hnbk.V), &(pv_ancestry[pv_i]->u.hnbk.w),
+						    &(pushback[b].n->u.hnbk.Phi), &(pushback[b].n->u.hnbk.V), &(pushback[b].n->u.hnbk.w));
+				} else {
+					/* Because loop only visits the subtrees of the right-hand-side sibilings of beta, different threads writes to different
+					   elements of `hessflat'. Therefore no locking is needed. */
+					tntmcpy_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
+						 pv_rt->u.rbk.hessflat, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
+						 &(pv_ancestry[pv_i]->u.hnbk.V), &(pv_ancestry[pv_i]->u.hnbk.w),
+						 &(pushback[b].n->u.hnbk.Phi), &(pushback[b].n->u.hnbk.V), &(pushback[b].n->u.hnbk.w));
+				}
+			}
+//		}
+
+#undef KR
+#undef KNV
+#undef KNU
+#undef KMV
+#undef KMU
+		free(wsp_a);
+	}/* for each k */
+	for (int j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
+	free(pv_starters);
+	free(pv_ancestry);
+}
+
+int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk,
+	       double *x0, struct node *rt, SEXP VwPhi_L, fn_getvwphi get_VwPhi, void *wsp,
+	       size_t swsp, size_t lwsp, int *interrupted, double *extrmem, double *dir, int ndir) {
+	int istip;
+	struct dfdqdk *dfqk1_ch, *dfqk1new_ch;
+	double *K;
+	struct llstptr *l, *a_new;
+	struct llst *fmlfm_new, *fm_new, *qm_new;
+	double *w;
+	char err = 0;
+	struct {  /* We manually manage our recursion stacks instead of the compiler's built-in one
+		     because this way, we can loop through the stack conveniently without passing
+		     even more stuff around function calls or mess with the stack frame addresses. */
+		struct node *m, *v;
+		struct hessglbbk *gbk, *gbk_new;
+		int kv;
+	} *stglob, curglob;
+	struct node **ancestry;
+	int promise_id=1, ndesc_sum;
+	int i=1;
+	int mdim;
+	int depth = 0;
+	stglob = NULL;
+	fmlfm_new = NULL;
+	fm_new = NULL;
+	qm_new = NULL;
+	a_new  = NULL;
+	K = NULL;
+	dfqk1_ch = NULL;
+	dfqk1new_ch = NULL;
+	if (!(stglob = malloc(sizeof(*stglob) * 50*1024*1024))) goto MEMFAIL;
+	curglob.kv = parent->ndat.ku;
+	curglob.m = m; curglob.gbk = gbk;
+	stglob[0].m = parent;	/* Artificially push the parent into the stack, since the parent here must be a direct child
+				   of the root by the way this function is called. This is for making the outside-m's-subtree
+				   walk easier. */
+DOWNGLOB:
+	++depth;
+	stglob[i]  = curglob; 
+	get_VwPhi(VwPhi_L, curglob.m, curglob.kv, NULL, &w, NULL, (char*)wsp+swsp, lwsp-swsp);
+	istip = (int)(!(curglob.m->chd));
+	// if (! (K           = calloc((curglob.m->ndat.ku) * (curglob.m->ndat.ku), sizeof(double))))   goto MEMFAIL;
+	if (! (K           = malloc((curglob.kv)*(curglob.kv)*sizeof(double))))            goto MEMFAIL;
+	if (! (dfqk1_ch    = calloc(DFQKSIZ,1)))                          goto MEMFAIL;
+	if (! (dfqk1new_ch = calloc(DFQKSIZ,1)))                          goto MEMFAIL;
+	dzero(K, (curglob.kv)*(curglob.kv));
+	
+	if (!allocdfqk(rt->ndat.ku, curglob.kv, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, dfqk1_ch)) goto MEMFAIL;
+	/* HESS_WRITE */
+	if (dir) {
+		//printf("NODE_ID: %d-%d (D)\n", curglob.m->id+1, curglob.m->id+1);
+		tmtmdir_(&(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), &(curglob.gbk->fmlfm), &(curglob.gbk->qm), &(curglob.gbk->fm), &(curglob.gbk->a),
+			 curglob.m->ndat.dodv, curglob.m->ndat.dodphi, curglob.m->ndat.dgamdv, curglob.m->ndat.dgamdw, curglob.m->ndat.dgamdphi,
+			 dfqk1_ch, K, x0, &(istip),
+			 (istip ? curglob.m->ndat.invV                  : curglob.m->u.hnbk.u.hsbkgen.invVLsO),
+			 (istip ? curglob.m->u.hnbk.u.hsbktip.invVPhi   : curglob.m->u.hnbk.u.hsbkgen.invVLsOPhi),
+			 (istip ? curglob.m->ndat.invV                  : curglob.m->u.hnbk.u.hsbkgen.VmVLV),
+			 (istip ? curglob.m->u.hnbk.u.hsbktip.invVxw    : curglob.m->u.hnbk.u.hsbkgen.invVLb),
+			 (istip ? curglob.m->ndat.invV                  : curglob.m->u.hnbk.u.hsbkgen.Hto),
+			 thrpv_bilinmat, dir, &ndir, &(rt->u.rbk.nparam), &(curglob.m->u.hnbk.Phi), &(curglob.m->u.hnbk.V), &(curglob.m->u.hnbk.w));
+	} else {
+		tmtm2_(&(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), &(curglob.gbk->fmlfm), &(curglob.gbk->qm), &(curglob.gbk->fm), &(curglob.gbk->a),
+		       curglob.m->ndat.dodv, curglob.m->ndat.dodphi, curglob.m->ndat.dgamdv, curglob.m->ndat.dgamdw, curglob.m->ndat.dgamdphi,
+		       dfqk1_ch, K, x0, &(istip),
+		       (istip ? curglob.m->ndat.invV                  : curglob.m->u.hnbk.u.hsbkgen.invVLsO),
+		       (istip ? curglob.m->u.hnbk.u.hsbktip.invVPhi   : curglob.m->u.hnbk.u.hsbkgen.invVLsOPhi),
+		       (istip ? curglob.m->ndat.invV                  : curglob.m->u.hnbk.u.hsbkgen.VmVLV),
+		       (istip ? curglob.m->u.hnbk.u.hsbktip.invVxw    : curglob.m->u.hnbk.u.hsbkgen.invVLb),
+		       (istip ? curglob.m->ndat.invV                  : curglob.m->u.hnbk.u.hsbkgen.Hto),
+		       rt->u.rbk.hessflat, &(rt->u.rbk.nparam), &(curglob.m->u.hnbk.Phi), &(curglob.m->u.hnbk.V), &(curglob.m->u.hnbk.w));
+	}
+	/* Invariants for m:
+
+	   1. curglob.gbk->fmlfm, fm, qm contains *_m and m > 1 so they aren't NULL or diagonal.
+	   2. curglob.gbk->a contains all a_i to the current m
+	   3. (1)/.m->j and (2)/.m->j are true in stglob[j] for all j <= m-1
+	   4. i = 1
+	   5. stglob[0].m is a direct child of the root but stglob[0].other_things are all undefined.
+	 */
+	struct hessglbbk kbk_beta;
+	void *starters;
+	initgbk(&kbk_beta, rt, stglob[0].m, curglob.gbk->mdim);                 /* Start kbk_beta using one of the direct children of the root. */
+	if (!(starters = calloc(DFQKSIZ,i))) goto MEMFAIL;
+	mdim = curglob.gbk->mdim;
+	for (int k=0; k <= i-1; ++k) {                   /* Walk from the direct kid of the root to prepare for the beta-alpha walk. */
+		struct llst *falfm_new;                  /* New block to be added into the linked list. */
+		if (k == 0) {
+			initfalfm_beta_(&(kbk_beta.fmlfm), &(curglob.gbk->fm), &(stglob[0].m->ndat.ku), &(curglob.kv));
+		} else {
+			if ( !(falfm_new = calloc(1, sizeof(struct llst) + mdim*mdim*sizeof(double))) ) {
+				goto MEMFAIL;
+			}
+			falfm_new->siz = stglob[k].m->ndat.ku;
+			memcpy(falfm_new->dat, stglob[k].m->ndat.Lamb, (stglob[k].m->ndat.ku)*(stglob[k].m->ndat.ku) * sizeof(double));
+			betadown_(&(kbk_beta.fmlfm), &falfm_new, &(curglob.gbk->fm), kbk_beta.fm->dat, kbk_beta.qm->dat, stglob[k].m->ndat.HPhi,
+				  stglob[k].m->ndat.a, &k, &mdim, &(rt->ndat.ku),
+				  &(stglob[k].m->ndat.ku), &(stglob[k-1].m->ndat.ku), &(curglob.kv));
+		}
+		if( !allocdfqk(rt->ndat.ku, stglob[k].m->ndat.ku, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, (struct dfdqdk*)(((char*)starters)+DFQKSIZ*k)) )
+			goto MEMFAIL;
+		initfqk4b_((void*)((char*)starters+DFQKSIZ*k), &(curglob.gbk->fm), &(curglob.gbk->qm), &(kbk_beta.fmlfm), kbk_beta.fm->dat, kbk_beta.qm->dat,
+			   &(curglob.gbk->a), &k, &(rt->ndat.ku), &(stglob[k].m->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku),
+			   curglob.m->ndat.dodv, curglob.m->ndat.dodphi, curglob.m->ndat.dgamdv, curglob.m->ndat.dgamdw,
+			   curglob.m->ndat.dgamdphi);
+	}
+	delgbk(kbk_beta);
+	if (! (ancestry = malloc(sizeof(struct node *) * (i+1)))) goto MEMFAIL;
+	ndesc_sum = 0;
+	for (int k=0; k <= i; ++k) {
+		ancestry[k] = stglob[k].m;
+		ndesc_sum += ancestry[k]->ndat.ndesc;
+	}
+
+	#pragma omp task if (ndesc_sum > 35)
+	{
+		walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, promise_id, mdim, interrupted, extrmem, dir, ndir);
+	}
+	++promise_id;
+	if (err) goto MEMFAIL;
+	if (!(curglob.m->chd)) {
+		if (i != 1) goto UPGLOB;    /* "Return" to the upper-level recursion */
+		else        goto DONE;	    /* This is the top level, quit entire the function */
+	}
+
+	if ((depth%10) && my_rchk()) goto MASTER_INTERRUPTED;
+	/* Now walk down the n, fixing m. The following line does the first step downward. */
+	/* if(!allocdfqk(rt->ndat.ku, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, dfqk1new_ch)) */
+	if(!allocdfqk(rt->ndat.ku, curglob.m->ndat.ku, curglob.kv, curglob.m->ndat.ku, curglob.kv, dfqk1new_ch))
+		goto MEMFAIL;
+	tndown1st_(dfqk1_ch, K, curglob.m->ndat.H, curglob.m->ndat.HPhi, w, curglob.m->ndat.a,
+		   curglob.gbk->fm->dat, curglob.gbk->qm->dat, curglob.m->ndat.Lamb, curglob.m->ndat.invV,
+		   curglob.m->u.hnbk.u.hsbkgen.invVLsOPhi,
+		   &(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), dfqk1new_ch);
+	free(K);           K=NULL;
+	deldfqk(dfqk1_ch);
+	free(dfqk1_ch);    dfqk1_ch=NULL;
+	{			/* Now really walk the subtree of curglob.m. */
+		struct {	/* States of the stack */
+			int kv;
+			struct node *n, *p;
+			struct dfdqdk *dfqk1_ch;
+			struct dfdqdk *dfqk1new_ch;
+		} *stdesc, curdesc;
+		int j;		/* Counter */
+		size_t stsiz = 0;
+		stack_siz_fixed(curglob.m, 0, &stsiz, sizeof(*stdesc));
+		if (!(stdesc = malloc(stsiz))) goto MEMFAIL;
+		for (struct node *n = curglob.m->chd; n; n = n->nxtsb) {
+			curdesc.kv=curglob.m->ndat.ku;  curdesc.n=n;  curdesc.dfqk1_ch = dfqk1new_ch;
+			j = 0;
+DOWNDESC:
+			/* HESS_WRITE */
+			if (dir) {
+				//printf("NODE_ID: %d-%d (E)\n", curglob.m->id+1, curdesc.n->id+1);
+				tntmdir_(&(rt->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1_ch,
+					 curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
+					 curdesc.n->ndat.dgamdphi, x0,
+					 thrpv_bilinmat, dir, &ndir, &(rt->u.rbk.nparam), &(curglob.m->u.hnbk.Phi), &(curglob.m->u.hnbk.V), &(curglob.m->u.hnbk.w),
+					 &(curdesc.n->u.hnbk.Phi), &(curdesc.n->u.hnbk.V), &(curdesc.n->u.hnbk.w));
+			} else {
+				tntm_(&(rt->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1_ch,
+				      curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
+				      curdesc.n->ndat.dgamdphi, x0,
+				      rt->u.rbk.hessflat, &(rt->u.rbk.nparam), &(curglob.m->u.hnbk.Phi), &(curglob.m->u.hnbk.V), &(curglob.m->u.hnbk.w),
+				      &(curdesc.n->u.hnbk.Phi), &(curdesc.n->u.hnbk.V), &(curdesc.n->u.hnbk.w));
+			}
+			if (curdesc.n->chd) {
+				if (! (curdesc.dfqk1new_ch = calloc(DFQKSIZ,1))) goto MEMFAIL;
+				if( !allocdfqk(rt->ndat.ku, curdesc.n->ndat.ku, curdesc.kv,
+					       curglob.m->ndat.ku, curglob.kv, curdesc.dfqk1new_ch))
+					goto MEMFAIL;
+				tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a,
+					&(rt->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku),
+					&(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1new_ch);
+				for (curdesc.p = curdesc.n->chd; curdesc.p; curdesc.p = curdesc.p->nxtsb) {
+					stdesc[j++] = curdesc;
+					curdesc.kv=curdesc.n->ndat.ku;  curdesc.dfqk1_ch=curdesc.dfqk1new_ch;
+					curdesc.n=curdesc.p;  curdesc.p=NULL;  curdesc.dfqk1new_ch=NULL;
+					goto DOWNDESC;
+UPDESC:
+					curdesc = stdesc[--j];
+				}
+				deldfqk(curdesc.dfqk1new_ch);
+				free(curdesc.dfqk1new_ch);   curdesc.dfqk1new_ch=NULL;
+			}
+			if (j) goto UPDESC;
+		}
+		free(stdesc);      stdesc = NULL;
+		deldfqk(dfqk1new_ch);
+		free(dfqk1new_ch); dfqk1new_ch = NULL;
+	}
+
+	/* 2. Global walk down. */
+	if ( !(fmlfm_new = calloc(1, sizeof(struct llst) + (curglob.gbk->mdim)*(curglob.gbk->mdim)*sizeof(double)))
+	     || !(fm_new = calloc(1, sizeof(struct llst) + (curglob.gbk->mdim)*(curglob.gbk->mdim)*sizeof(double)))
+	     || !(qm_new = calloc(1, sizeof(struct llst) + curglob.gbk->mdim * sizeof(double)))
+	     || !(a_new  = calloc(1, sizeof(struct llstptr))))
+		goto MEMFAIL;
+	gbkcpy(&(curglob.gbk_new), curglob.gbk);
+	updategbk_( &(curglob.kv), &(curglob.m->ndat.ku),
+		    &(curglob.gbk_new->fmlfm), &(fmlfm_new), &(curglob.gbk_new->fm), &(fm_new), &(curglob.gbk_new->qm), &(qm_new),
+		    curglob.m->ndat.Lamb,                    curglob.m->ndat.HPhi,              curglob.m->ndat.a);
+	for (l=curglob.gbk_new->a; l->nxt; l=l->nxt);;
+	l->nxt     = a_new;
+	a_new->siz = curglob.m->ndat.ku;
+	a_new->dat = curglob.m->ndat.a;
+	for (curglob.v = curglob.m->chd; curglob.v; curglob.v = curglob.v->nxtsb) {
+		if (i >= 50*1024*1024)             goto STACKFAIL;
+		stglob[i++] = curglob;
+		curglob.kv = curglob.m->ndat.ku; curglob.m=curglob.v;  curglob.gbk = curglob.gbk_new;
+		goto DOWNGLOB;
+UPGLOB:
+		curglob=stglob[--i];
+	}
+	delgbk(*(curglob.gbk_new));
+	free(curglob.gbk_new); curglob.gbk_new =NULL;
+	if (i!=1) goto UPGLOB;		/* It's one but not zero cus the bottom of the stack is the parent. */
+DONE:
+	free(stglob);
+	goto SUCCESS;
+MEMFAIL:
+        { /* You have to wrap this line with that curly braces to stop GCC from complaining. */
+		#pragma omp taskwait
+	}
+	free(stglob);
+	free(K);
+	deldfqk(dfqk1new_ch);
+	free(dfqk1new_ch);
+	return 3;
+STACKFAIL:
+        {
+		#pragma omp taskwait
+	}
+	free(stglob);
+	free(K);
+	deldfqk(dfqk1new_ch);
+	free(dfqk1new_ch);
+	return 2;
+MASTER_INTERRUPTED:
+	/* Send out signal to shutdown every other threads. */
+	__ATOMIC_WRITE__
+		*interrupted = 1;
+	#pragma omp flush
+	#pragma omp taskwait
+	/* Free up everything left in the stack. */
+	for (; i>=2; --i) delgbk(*(stglob[i].gbk));
+	free(stglob);
+	free(K);
+	deldfqk(dfqk1new_ch);
+	free(dfqk1new_ch);
+	return 1;
+SUCCESS:
+	return 0;
+}
+
+
+void hessselftop(struct node *m, int kv,
+		 int ictx, int i, int j, int p, int q, double *x0, struct node *rt,
+		 double *hessflat, double *dir, int ndir) {
+	long didx1, didx2;
+	double dl_ijpq=0, dl_ijqp=0, dl_jipq=0, dl_jiqp=0, dl;
+	
+	/* Precondition: For V, i>=j and p>=q. Symmetry is handled in here so caller should loop on U not V. */
+
+#define DIFFGEN(ICTX,I,J,P,Q,RES) dbledifftopgen_(&(ICTX),&(I),&(J),&(P),&(Q),&(rt->ndat.ku),&kv,&(m->ndat.ku),\
+					       m->u.hnbk.u.hsbkgen.invVLsO, m->u.hnbk.u.hsbkgen.invVLsOPhi, \
+					       m->u.hnbk.u.hsbkgen.VmVLV, m->u.hnbk.u.hsbkgen.invVLb, \
+					       m->u.hnbk.u.hsbkgen.Hto, x0, &(RES))
+#define	DIFFTIP(ICTX,I,J,P,Q,RES) dbledifftoptip_(&(ICTX),&(I),&(J),&(P),&(Q),&(rt->ndat.ku),&kv,&(m->ndat.ku), \
+					       m->ndat.invV, m->u.hnbk.u.hsbktip.invVPhi, m->u.hnbk.u.hsbktip.invVxw, \
+					       x0, &(RES));
+	switch (ictx) {
+	case IVV:
+		didx1 = m->u.hnbk.V + iijtouplolidx_(&(m->ndat.ku), &i, &j); /* Fortran idx. */
+		didx2 = m->u.hnbk.V + iijtouplolidx_(&(m->ndat.ku), &p, &q);
+		if (! m->ndat.x) {
+			DIFFGEN(ictx,i,j,p,q, dl_ijpq);
+			DIFFGEN(ictx,j,i,p,q, dl_jipq);
+			DIFFGEN(ictx,j,i,q,p, dl_jiqp);
+			DIFFGEN(ictx,i,j,q,p, dl_ijqp);
+		} else {
+			DIFFTIP(ictx,i,j,p,q, dl_ijpq);
+			DIFFTIP(ictx,j,i,p,q, dl_jipq);
+			DIFFTIP(ictx,j,i,q,p, dl_jiqp);
+			DIFFTIP(ictx,i,j,q,p, dl_ijqp);
+		}
+		symhessvv_(&i,&j,&p,&q,&dl_ijpq,&dl_jipq,&dl_jiqp,&dl_ijqp,&dl);
+		break;
+	case IVPHI:
+		didx2 = m->u.hnbk.Phi + (q-1) * m->ndat.ku + p;
+		goto DOIVANY;
+	case IVW:
+		didx2 = m->u.hnbk.w + p;
+DOIVANY:
+		didx1 = m->u.hnbk.V + iijtouplolidx_(&(m->ndat.ku), &i, &j);
+		if (! m->ndat.x) {
+			DIFFGEN(ictx,i,j,p,q, dl_ijpq);
+			DIFFGEN(ictx,j,i,p,q, dl_jipq);
+		} else {
+			DIFFTIP(ictx,i,j,p,q, dl_ijpq);
+			DIFFTIP(ictx,j,i,p,q, dl_jipq);
+		}
+		symhessvany_(&i,&j, &dl_ijpq,&dl_jipq, &dl);
+		break;
+	case IPHIPHI:
+		didx1 = m->u.hnbk.Phi + (j-1) * m->ndat.ku + i;
+		didx2 = m->u.hnbk.Phi + (q-1) * m->ndat.ku + p;
+		goto DIFSIM;
+	case IPHIW:
+		didx1 = m->u.hnbk.w + p;
+		didx2 = m->u.hnbk.Phi + (j-1) * m->ndat.ku + i;
+		goto DIFSIM;
+	case IWW:
+		didx1 = m->u.hnbk.w + i;
+		didx2 = m->u.hnbk.w + p;
+DIFSIM:
+		if (! m->ndat.x)  DIFFGEN(ictx,i,j,p,q, dl);
+		else              DIFFTIP(ictx,i,j,p,q, dl);
+		break;
+	default:
+		RUPROTERR(("Bug in hessselftop(): default case"));
+	}
+	if (didx1 < didx2)  RUPROTERR(("Bug in hessselftop(): wrong indicies"));
+	/* HESS_WRITE */
+	if (dir) {
+		bilinupdt_(&dl, hessflat, &(rt->u.rbk.nparam), &didx1, &didx2, dir, &ndir);
+	} else {
+		hessflat[ijtouplolidx_(&(rt->u.rbk.nparam), &didx1, &didx2)-1] = dl;
+	}
+#undef DIFFTIP
+#undef DIFFGEN
+}
+
+void dndgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, double *o, double *d,
+	       fn_getvwphi get_VwPhi, fn_tcgod tcgod, fn_merg merg, void *wsp, size_t swsp, size_t lwsp,
+	       int *info) {
+	/* Precondition: cgod contains either the sum of all previous siblings of
+	                 t, excluding t, or zero if non-existent.
+	   Post-condition: cgod contains sum of all previous sibilings of t, including t. */
+	struct node *p;
+	size_t nbytes;
+	double *v, *w, *phi, *c1, *d1, *gam1, *o1;
+
+	if ((nbytes=get_VwPhi(VwPhi_L, t, kv, &v, &w, &phi, (char*)wsp+swsp, lwsp-swsp)) < 0) {
+		*info = -99;
+		return;
+	}
+	swsp += nbytes;
+	if (t->ndat.x) {
+		tcgod(t, kv, v, w, phi, c, gam, o, d, info);
+		if (*info != 0)	 {
+			*info = -1;
+			return;
+		}
+	} else {	
+		ZEROCGOD((char*)wsp+swsp, c1, gam1, o1, d1, t->ndat.ku);
+		swsp += CGODBYTES(t->ndat.ku);
+		for (p = t->chd; p; p = p->nxtsb) {
+			dndgcgod(p, VwPhi_L, t->ndat.ku, c1, gam1, o1, d1, get_VwPhi, tcgod, merg, wsp, swsp, lwsp, info);
+			if (*info != 0) return;
+		}
+		merg(t, kv, v, w, phi, c1, gam1, o1, d1, c, gam, o, d, info);
+		if (*info != 0) {
+			*info = -2;
+			return;
+		}
+	}
+	*info = 0;
+	return;
+}
+
+void hgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, double *o, double *d,
+	     fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, int *info) {
+	struct node *p;
+	double *v, *w, *phi, *d1;
+	size_t nbytes;
+	if ((nbytes=get_VwPhi(VwPhi_L, t, kv, &v, &w, &phi, (char*)wsp+swsp, lwsp-swsp)) < 0) {
+		*info = -99;
+		return;
+	}
+	swsp += nbytes;
+	if (t->ndat.x) {
+		c_htcgod(t, kv, v, w, phi, c, gam, o, d, info);
+		if (*info != 0)	 {
+			*info = -1;
+			return;
+		}
+	} else {
+		d1=(double*)((char*)wsp+swsp);  *d1=0;  swsp+=sizeof(double);
+		for (p = t->chd; p; p = p->nxtsb) {
+			hgcgod(p, VwPhi_L, t->ndat.ku, t->ndat.sc, t->ndat.sgam, t->ndat.so, d1,
+			       get_VwPhi, wsp, swsp, lwsp, info);
+			if (*info != 0) return;
+		}
+		c_hmerg(t, kv, v, w, phi, t->ndat.sc, t->ndat.sgam, t->ndat.so, d1, c, gam, o, d, info);
+		if (*info != 0)	 {
+			*info = -2;
+			return;
+		}
+	}
+	*info = 0;
+	return;
+}
+
+
+
+/* TODO: Check for NA, NaN, Inf, -Inf and so on. But tbh the users is sort of
+         responsible for that...  */
+int chk_VwPhi_listnum2(struct node *t, SEXP VwPhi_L, int kv, int *mode, int *errcode) {
+	SEXP dim, VwPhi, V, w, Phi;
+	int ans;
+	VwPhi = VECTOR_ELT(VwPhi_L, t->id);
+	if (*mode == -1) {	/* detect if strings should be used as key or numbers */
+		SEXP names = getAttrib(VwPhi, R_NamesSymbol);
+		if ((!isNull(names)) &&
+		    (!isNull(Rlistelem(VwPhi, "V"))) &&
+		    (!isNull(Rlistelem(VwPhi, "w"))) &&
+		    (!isNull(Rlistelem(VwPhi, "Phi"))))
+			*mode = 1;
+		else    *mode = 2;
+	}
+	if (*mode == 1) {	/* String indexing */
+		if (length(VwPhi) != 3)                      { *errcode = 91; return -(t->id); }
+		V = Rlistelem(VwPhi, "V");
+		w = Rlistelem(VwPhi, "w");
+		Phi = Rlistelem(VwPhi, "Phi");
+	} else {		/* Numeric indexing */
+		if (length(VwPhi) != 3)                      { *errcode = 92; return -(t->id); }
+		V = VECTOR_ELT(VwPhi, 0);
+		w = VECTOR_ELT(VwPhi, 1);
+		Phi = VECTOR_ELT(VwPhi, 2);
+	}
+	if (TYPEOF(V) != REALSXP)   { *errcode = 10; return -(t->id); }
+	if (TYPEOF(w) != REALSXP)   { *errcode = 20; return -(t->id); }
+	if (TYPEOF(Phi) != REALSXP) { *errcode = 30; return -(t->id); }
+
+	dim = getAttrib(V, R_DimSymbol);
+	if (length(dim) != 2)                                                   { *errcode=11; return -(t->id); }
+	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != t->ndat.ku)) { *errcode=12; return -(t->id); }
+	dim = getAttrib(w, R_DimSymbol);
+	if (!(length(dim)==0 || length(dim)==1 || length(dim)==2))              { *errcode=21; return -(t->id); }
+	if ((length(dim)==2) && (INTEGER(dim)[1] != 1))                         { *errcode=22; return -(t->id); }
+	if (length(w) != t->ndat.ku)                                            { *errcode=23; return -(t->id); }
+	dim = getAttrib(Phi, R_DimSymbol);
+	if (length(dim)!=2)                                                     { *errcode=31; return -(t->id); }
+	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != kv))         { *errcode=32; return -(t->id); }
+	for (struct node *p = t->chd; p; p=p->nxtsb)
+		if ((ans = chk_VwPhi_listnum2(p, VwPhi_L, t->ndat.ku, mode, errcode)) != 1)
+			return ans;
+	return 1;
+}
+/* Return 1 if success. Otherwise return the negative INTERNAL
+   (start from zero) node ID which fails the check.
+ */
+int chk_VwPhi_listnum(struct node *t, SEXP VwPhi_L, int *mode, int *errcode) {
+	int ans;
+	if (! isNull(VECTOR_ELT(VwPhi_L, t->id))) return -(t->id);
+	*mode = -1;
+	for (struct node *p = t->chd; p; p=p->nxtsb) 
+		if ((ans=chk_VwPhi_listnum2(p, VwPhi_L, t->ndat.ku, mode, errcode)) != 1)
+			return ans;
+	return 1;
+}
+
+fn_getvwphi chk_VwPhi(struct node *t, SEXP VwPhi_L) {
+	int chk_ans, mode, errcode;
+	switch (TYPEOF(VwPhi_L)) {
+	case REALSXP:
+		/* It must be of length nparam */
+		if (! (length(VwPhi_L) == t->u.rbk.nparam))
+			RUPROTERR(("The VwPhi parameters should be %ld dimensional but we've got %d dimensions",
+				   t->u.rbk.nparam, (int)(length(VwPhi_L))));
+		return &getvwphi_vec;
+	case VECSXP:
+		if (length(VwPhi_L) != t->ndat.ndesc+1)
+			RUPROTERR(("VwPhi parameters is a list but its length is not equal to the number of nodes"));
+		if ((chk_ans = chk_VwPhi_listnum(t, VwPhi_L, &mode, &errcode))!=1)
+			RUPROTERR(("Malformed VwPhi parameter at node #%d, err. code=%d", -chk_ans+1, errcode));
+		return mode == 1 ? &getvwphi_liststr : &getvwphi_listnum;
+	default:
+		RUPROTERR(("VwPhi parameters must either be a list or numeric vector with mode 'double'"));
+	}
+}
+SEXP Rndphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
+	struct node *t;
+	SEXP l;
+	t = R_ExternalPtrAddr(p);
+	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
+	l = PROTECT(allocVector(REALSXP, 1));
+	protdpth = 1;
+	/* TODO: ensure PROTECT stack balance when ndphylik() calls longjmp(). R seems to be doing
+	         some magic to the PROTECT stack (?) but just in case... */
+	ndphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t, VwPhi_L));
+	UNPROTECT(1);
+	protdpth = -1;
+	return l;
+}
+SEXP Rdphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
+	struct node *t;
+	SEXP l;
+	t = R_ExternalPtrAddr(p);
+	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
+	l = PROTECT(allocVector(REALSXP, 1));
+	protdpth = 1;
+	dphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t,VwPhi_L));
+	UNPROTECT(1);
+	protdpth = -1;
+	return l;
+}
+
+SEXP Rhphylik_dir(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP dir) {
+	struct node *t;
+	SEXP l, Rndirdim, Rres, Rres_dim;
+	int *ndirdim, ndir, *res_dim;
+	t = R_ExternalPtrAddr(p);
+	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
+	if (TYPEOF(dir) != REALSXP) error("Directions must be a double precision matrix but you have passed me something else\n");
+	Rndirdim = getAttrib(dir, R_DimSymbol);
+	if (isNull(Rndirdim) || (length(Rndirdim) != 2)) error("Directions must be a matrix");
+	ndirdim  = INTEGER(Rndirdim);
+	ndir     = ndirdim[1];
+	Rres = PROTECT(allocVector(REALSXP, ndir * ndir));
+	dzero(REAL(Rres), ndir*ndir);
+	Rres_dim = PROTECT(allocVector(INTSXP, 2));
+	res_dim = INTEGER(Rres_dim);
+	res_dim[0] = ndir;
+	res_dim[1] = ndir;
+	setAttrib(Rres, R_DimSymbol, Rres_dim);
+	l = PROTECT(allocVector(REALSXP, 1));
+	protdpth = 3;
+	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), REAL(Rres), REAL(dir), ndir);
+	t->u.rbk.hessflat_needs_free = 0;
+	t->u.rbk.hessflat            = NULL;
+	UNPROTECT(3);
+	protdpth = -1;
+	return Rres;
+}
+
+SEXP Rhphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
+	struct node *t;
+	SEXP l;
+	t = R_ExternalPtrAddr(p);
+	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
+	l = PROTECT(allocVector(REALSXP, 1));
+	protdpth = 1;
+	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), NULL, NULL, 0);
+	UNPROTECT(1);
+	protdpth = -1;
+	return l;
+}
+SEXP Rhphylik_big(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP hessfp) {
+	struct node *t;
+	SEXP l;
+	double *hessflat;
+	t        = R_ExternalPtrAddr(p);
+	hessflat = R_ExternalPtrAddr(hessfp);
+	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
+	l = PROTECT(allocVector(REALSXP, 1));
+	protdpth = 1;
+	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), hessflat, NULL, 0);
+	UNPROTECT(1);
+	protdpth = -1;
+	return l;
+}
+void extractderiv(struct node *t, int kv, SEXP x);
+SEXP Rextractderiv(SEXP tr, SEXP nr) {
+	/* Returns a R-list x, in which the x[[i]] contains
+	   a list of dlikdv, dlikdw, dlikdphi of the node with
+	   ape-id i. n is the total number of nodes, internals + tip + root. */
+	SEXP x;
+	struct node *p, *t;
+	int n;
+	n = INTEGER(nr)[0];
+	t = (struct node *) R_ExternalPtrAddr(tr);
+	x = PROTECT(allocVector(VECSXP, n));
+	for (p = t->chd; p; p = p->nxtsb)  extractderiv(p, t->ndat.ku, x);
+	UNPROTECT(1 + (n-1) * 4);
+	return x;
+}
+
+void extractderiv(struct node *t, int kv, SEXP x) {
+	SEXP d; SEXP c; double *rptr;
+	struct node *p;
+
+	if (! t) return;
+	
+	d = PROTECT(allocVector(VECSXP, 3));
+	c = PROTECT(allocMatrix(REALSXP, t->ndat.ku, t->ndat.ku));
+	rptr = REAL(c);
+	memcpy(rptr, t->ndat.dlikdv, (t->ndat.ku) * (t->ndat.ku) * sizeof(double));
+	SET_VECTOR_ELT(d, 0, c);
+	c = PROTECT(allocVector(REALSXP, t->ndat.ku));
+	rptr = REAL(c);
+	memcpy(rptr, t->ndat.dlikdw, t->ndat.ku * sizeof(double));
+	SET_VECTOR_ELT(d, 1, c);
+	c = PROTECT(allocMatrix(REALSXP, t->ndat.ku, kv));
+	rptr = REAL(c);
+	memcpy(rptr, t->ndat.dlikdphi, kv * (t->ndat.ku) * sizeof(double));
+	SET_VECTOR_ELT(d, 2, c);
+	SET_VECTOR_ELT(x, t->id, d);
+	
+	for (p = t->chd; p; p = p->nxtsb) extractderiv(p, t->ndat.ku, x);
+	return;
+}
+
+void extractderivvec(struct node *t, int kv, double *dptr) {
+	struct node *p;
+	memcpy(dptr + t->u.hnbk.Phi, t->ndat.dlikdphi, (t->ndat.ku) * kv * sizeof(double));
+	memcpy(dptr + t->u.hnbk.w, t->ndat.dlikdw, (t->ndat.ku) * sizeof(double));
+	gesylcpy_(dptr + t->u.hnbk.V, t->ndat.dlikdv, &(t->ndat.ku));
+	for (p = t->chd; p; p = p->nxtsb) extractderivvec(p, t->ndat.ku, dptr);
+}
+SEXP Rextractderivvec(SEXP tr) {
+	SEXP d;   double *dptr;   struct node *p, *t;
+	t = (struct node *) R_ExternalPtrAddr(tr);
+	d = PROTECT(allocMatrix(REALSXP, t->u.rbk.nparam, 1));
+	dptr = REAL(d);
+	for (p = t->chd; p; p = p->nxtsb)  extractderivvec(p, t->ndat.ku, dptr);
+	UNPROTECT(1);
+	return d;
+}
+SEXP Rextracthessuplol(SEXP tr) {
+	SEXP d;   double *dptr;   struct node *t;  long siz;
+	t = (struct node *) R_ExternalPtrAddr(tr);
+	siz = ((t->u.rbk.nparam) * ((t->u.rbk.nparam)+1))/2;
+	d = PROTECT(allocMatrix(REALSXP, siz, 1));
+	dptr = REAL(d);
+	memcpy(dptr, t->u.rbk.hessflat, siz * sizeof(double));
+	UNPROTECT(1);
+	return d;
+}
+SEXP Rextracthessall(SEXP tr) {
+	SEXP d;   double *dptr;   struct node *t;
+	t = (struct node *) R_ExternalPtrAddr(tr);
+	d = PROTECT(allocMatrix(REALSXP, t->u.rbk.nparam, t->u.rbk.nparam));
+	dptr = REAL(d);
+	lsylgecpy_(dptr, t->u.rbk.hessflat, &(t->u.rbk.nparam));
+	UNPROTECT(1);
+	return d;
+}
+SEXP Rnparams(SEXP Rtr) {
+	struct node *t;
+	SEXP Rn; double *n;
+	t = R_ExternalPtrAddr(Rtr);
+	Rn = PROTECT(allocVector(REALSXP, 1));
+	n = REAL(Rn);
+	*n = (double) t->u.rbk.nparam;
+	UNPROTECT(1);
+	return Rn;
+}
+SEXP Rndesc(SEXP Rtr) {
+	struct node *t;
+	SEXP Rn; double *n;
+	t = R_ExternalPtrAddr(Rtr);
+	Rn = PROTECT(allocVector(REALSXP, 1));
+	n = REAL(Rn);
+	*n = (double) t->ndat.ndesc;
+	UNPROTECT(1);
+	return Rn;
+}
+SEXP Rxavail(SEXP Rtr) {
+	struct node *t;
+	SEXP Rn; int *n;
+	t = R_ExternalPtrAddr(Rtr);
+	Rn = PROTECT(allocVector(LGLSXP, 1));
+	n = INTEGER(Rn);
+	*n = t->u.rbk.xavail;
+	UNPROTECT(1);
+	return Rn;
+}
+
+SEXP Rtagreg(SEXP p, SEXP Rnnode, SEXP regspec);
+SEXP Rdeschpos(SEXP tr, SEXP Rx, SEXP Ry);
+void tagreg2(struct node *t, int nnode, int *v, size_t lenv, int *res, int curreg);
+void tagreg(struct node *t, int nnode, int *v, size_t lenv, int *res);
+void findhpos_wk(struct node *t, int kv, long target, int *nodeid, int *vwphi);
+
+/* Only the id and topology of the tree is used. Every other things are not even read. */
+SEXP Rtagreg(SEXP p, SEXP Rnnode, SEXP regspec) {
+	/* regspec: a vector of ape-IDs of roots of regions, plus one cell of 'working area'.
+	   Returns a vector of region IDs, which are just the R indices of regspec.
+	 */
+	struct node *t;
+	int *v;
+	int nnode;
+	size_t lenv;
+	SEXP res;
+	t = (struct node *)R_ExternalPtrAddr(p);
+	v = INTEGER(regspec);
+	lenv = length(regspec);
+	nnode = INTEGER(Rnnode)[0];
+	res = PROTECT(allocVector(INTSXP, nnode));
+	protdpth = 1;
+	tagreg(t, nnode, v, lenv, INTEGER(res));
+	UNPROTECT(1);
+	protdpth = -1;
+	return res;
+}
+void tagreg(struct node *t, int nnode, int *v, size_t lenv, int *res) {
+	int j = 0;
+	iset(res, -1, nnode);
+	v[lenv-1] = t->id+1;
+	while (v[j++] != t->id+1);
+	if (j>=lenv) j = -1;
+	res[t->id] = -1;	/* Root branch doesn't exist. */
+	for (t = t->chd; t; t = t->nxtsb) tagreg2(t, nnode, v, lenv, res, j);
+	return;
+}
+void tagreg2(struct node *t, int nnode, int *v, size_t lenv, int *res, int curreg) {
+	int j = 0;
+	v[lenv-1] = t->id+1;
+	while (v[j++] != t->id+1);
+	res[t->id] = j >= lenv ? curreg : (curreg = j);
+	if (curreg < 0) RUPROTERR(("tagreg(): Failed to find the evolutionary region of node %d", t->id+1));
+	for (t = t->chd; t; t=t->nxtsb) tagreg2(t, nnode, v, lenv, res, curreg);
+}
+
+void vwphi_simulwk(struct node *t, int ntip, double *dpar, double *daddy, int kv, double *wsp, size_t swsp, SEXP out, int *info);
+void vwphi_simul(struct node *t, int ntip, double *dpar, double *x0, double *wsp, SEXP out, int *info);
+SEXP Rvwphi_simul(SEXP Rctree, SEXP Rntip, SEXP Rdimtab, SEXP Rpar, SEXP Rnsamp, SEXP Rx0) {
+	struct node *t, *p;
+	int nsamp, *dimtab, ntip, mdim;
+	double *dpar, *x0;
+	int info;
+	SEXP out;
+	double *wsp;
+	size_t lwsp;
+	
+	t     = (struct node *)R_ExternalPtrAddr(Rctree);
+	dpar  = REAL(Rpar);
+	x0    = REAL(Rx0);
+	nsamp = INTEGER(Rnsamp)[0];
+	dimtab= INTEGER(Rdimtab);
+	ntip  = INTEGER(Rntip)[0];
+	
+	mdim = maxdim(t);
+	out = PROTECT(allocVector(VECSXP, nsamp));
+	for (int i=0; i<nsamp; ++i) {
+		SEXP xi;
+		xi = PROTECT(allocVector(VECSXP, ntip));
+		SET_VECTOR_ELT(out, i, xi);
+		UNPROTECT(1);
+		for (int j=0; j<ntip; ++j) {
+			SEXP xij;
+			xij = PROTECT(allocVector(REALSXP, dimtab[j]));
+			SET_VECTOR_ELT(xi, j, xij);
+			UNPROTECT(1);
+		}
+	}
+	lwsp = 0;	stack_siz_fixed(t, 0, &lwsp, mdim*sizeof(double));
+	if (!(wsp = malloc(lwsp))) goto MEMFAIL;
+	GetRNGstate();
+	for (int i=0; i<nsamp; ++i) {
+		vwphi_simul(t, ntip, dpar, x0, wsp, VECTOR_ELT(out, i), &info);
+		if (info != 0) {
+			free(wsp);
+			goto CHOLFAIL;
+		}
+	}
+	free(wsp);
+	PutRNGstate();
+	UNPROTECT(1);
+	return out;
+
+MEMFAIL:
+	PutRNGstate();
+	UNPROTECT(1);
+	error("Rvwphi_simul(): failed to allocate memory.");
+CHOLFAIL:
+	PutRNGstate();
+	UNPROTECT(1);
+	if (info > 0) error("Rvwphi_simul(): the `V` in node #%d is not positive definite", info);
+	else          error("Rvwphi_simul(): congratulation! you have found a bug in the package... (cholesky of node #%d)", info);
+}
+void vwphi_simul(struct node *t, int ntip, double *dpar, double *x0, double *wsp, SEXP out, int *info) {
+	for (struct node *p = t->chd; p; p=p->nxtsb) {
+		vwphi_simulwk(p, ntip, dpar, x0, t->ndat.ku, wsp, 0, out, info);
+		if (*info != 0) break;
+	}
+}
+extern void vwphisimstep_(double *Phi, double *w, double *V, double *daddy, int *kv, int *ku, double *out, int *info);
+void vwphi_simulwk(struct node *t, int ntip, double *dpar, double *daddy, int kv, double *wsp, size_t swsp, SEXP out, int *info) {
+	for (int j=0; j<(t->ndat.ku); ++j)
+		wsp[swsp+j]= rnorm(0.0, 1.0); //norm_rand();
+	vwphisimstep_(dpar+(t->u.hnbk.Phi), dpar+(t->u.hnbk.w), dpar+(t->u.hnbk.V), daddy, &kv, &(t->ndat.ku), wsp+swsp, info);
+	if (*info != 0) {
+		if      (*info > 0)  *info = t->id+1;
+		else if (*info < 0)  *info = -(t->id+1);
+		return;
+	}
+	if (t->id < ntip) {
+		memcpy(REAL(VECTOR_ELT(out, t->id)), wsp+swsp, (t->ndat.ku)*sizeof(double));
+	} else {
+		size_t newswsp;
+		newswsp = swsp + (size_t)(t->ndat.ku);
+		for (struct node *p = t->chd; p; p=p->nxtsb)
+			vwphi_simulwk(p, ntip, dpar, wsp+swsp, t->ndat.ku, wsp, newswsp, out, info);
+	}
+}
+
+
+
+void unpack_gauss(struct node *t, int kv, double *par, SEXP x);
+SEXP Runpack_gauss(SEXP Rctree, SEXP Rn, SEXP Rpar) {
+	SEXP x;
+	struct node *t, *p;
+	int n;
+	double *dpar;
+	t = (struct node *)R_ExternalPtrAddr(Rctree);
+	dpar = REAL(Rpar);
+	n = INTEGER(Rn)[0];
+	x = PROTECT(allocVector(VECSXP, n));
+	for (p = t->chd; p; p = p->nxtsb) unpack_gauss(p, t->ndat.ku, dpar, x);
+	UNPROTECT(1);
+	return x;
+}
+void unpack_gauss(struct node *t, int kv, double *par, SEXP x) {
+	SEXP d; SEXP c; SEXP names;
+	struct node *p;
+	if (! t) return;
+	d = PROTECT(allocVector(VECSXP, 3));
+	c = PROTECT(allocMatrix(REALSXP, t->ndat.ku, kv)); /* Phi */
+	memcpy(REAL(c), par + t->u.hnbk.Phi, (t->ndat.ku)*kv*sizeof(double));
+	SET_VECTOR_ELT(d, 0, c);
+	c = PROTECT(allocVector(REALSXP, t->ndat.ku));     /* w */
+	memcpy(REAL(c), par + t->u.hnbk.w, (t->ndat.ku)*sizeof(double));
+	SET_VECTOR_ELT(d, 1, c);
+	c = PROTECT(allocMatrix(REALSXP, t->ndat.ku, t->ndat.ku)); /* V */
+	sylgecpy_(REAL(c), par + t->u.hnbk.V, &(t->ndat.ku));
+	SET_VECTOR_ELT(d, 2, c);
+	names = PROTECT(allocVector(VECSXP, 3));
+	SET_VECTOR_ELT(names, 0, install("Phi"));
+	SET_VECTOR_ELT(names, 1, install("w"));
+	SET_VECTOR_ELT(names, 2, install("V"));
+	setAttrib(d, R_NamesSymbol, names);
+	SET_VECTOR_ELT(x, t->id, d);
+	UNPROTECT(5);
+	for (p = t->chd; p; p = p->nxtsb) unpack_gauss(p, t->ndat.ku, par, x);
+	return;
+}
+
+/* Just for debugging */
+void findhpos(struct node *t, long target, int *nodeid, int *vwphi) {
+	for (struct node *p = t->chd; p; p = p->nxtsb)
+		findhpos_wk(p, (long)(t->ndat.ku), target, nodeid, vwphi);
+}
+void findhpos_wk(struct node *t, int kv, long target, int *nodeid, int *vwphi) {
+	if (target >= t->u.hnbk.Phi && target < t->u.hnbk.w) {
+		*nodeid = t->id;	*vwphi  = 3;
+	} else if (target >= t->u.hnbk.w && target < t->u.hnbk.V) {
+		*nodeid = t->id;	*vwphi  = 2;
+	} else if (target >= t->u.hnbk.V && target < t->u.hnbk.V + (long)((t->ndat.ku) * (t->ndat.ku))) {
+		*nodeid = t->id;	*vwphi  = 1;
+	} else for (struct node *p = t->chd; p; p = p->nxtsb)
+		       findhpos_wk(p, t->ndat.ku, target, nodeid, vwphi);
+}
+SEXP Rdeschpos(SEXP tr, SEXP Rx, SEXP Ry) {
+	/* Returns a R-list x, in which the x[[i]] contains a list of dlikdv, dlikdw, dlikdphi of the node with
+	   ape-id i. n is the total number of nodes, internals + tip + root. */
+	int x, y;
+	long xl, yl;
+	struct node *t;
+	SEXP desc;
+	int *dptr;
+
+	x = INTEGER(Rx)[0];    y = INTEGER(Ry)[0];
+	xl = (long) x;         yl = (long) y;
+	t = (struct node *) R_ExternalPtrAddr(tr);
+	desc = PROTECT(allocMatrix(INTSXP, 4, 1));
+	dptr = INTEGER(desc);
+	dptr[0] = dptr[1] = dptr[2] = dptr[3] = -1;
+	findhpos(t, xl-1, dptr, dptr+1);
+	findhpos(t, yl-1, dptr+2, dptr+3);
+	UNPROTECT(1);
+	return desc;
+}
+
+/*
+    tr: just a 'template tree' and only the ID and topology of the tree is
+        used and other attributes are not read at all.
+
+    tipmiss: the missingness of the trait, a matrix such that each column
+             a missing-ness vector.
+ */
+void tagmiss(struct node *t, int *TM, int maxdim, int ntips, int nnodes, int *M);
+SEXP Rtagmiss(SEXP Rtr, SEXP Rnnodes, SEXP Rtipmiss) {
+	struct node *t;
+	int *TM, *M, maxdim, nnodes;
+	SEXP RM, dim;
+	t = (struct node *) R_ExternalPtrAddr(Rtr);
+	TM = INTEGER(Rtipmiss);
+	dim = getAttrib(Rtipmiss, R_DimSymbol);
+	maxdim = INTEGER(dim)[0];
+	nnodes = INTEGER(Rnnodes)[0];
+	RM = PROTECT(allocMatrix(INTSXP, maxdim, nnodes));
+	M = INTEGER(RM);
+	for (int j=0; j<maxdim*nnodes; ++j ) M[j]=1;
+        tagmiss(t, TM, maxdim, INTEGER(dim)[1], nnodes, M);
+#define _M(q, dim)   M[((q)->id)*(maxdim)+(dim)]
+	for (int d=0; d<maxdim; ++d)
+		if (_M(t,d) != 1) {
+			UNPROTECT(1);
+			error("Some dimensions has NaN on all tips!");
+		}
+	UNPROTECT(1);
+	return RM;
+}
+
+void tagmiss(struct node *t, int *TM, int maxdim, int ntips, int nnodes, int *M) {
+#define _TM(q, dim) TM[((q)->id)*(maxdim)+(dim)]
+	int d;
+	if (t->id < ntips) for (d=0; d<maxdim; ++d) _M(t,d) = _TM(t,d);
+	else {
+		for (struct node *p = t->chd; p; p=p->nxtsb) {
+			tagmiss(p, TM, maxdim, ntips, nnodes, M);
+			for (d=0; d<maxdim; ++d) _M(t,d) *= !(_M(p,d));
+		}
+		for (d=0; d<maxdim; ++d) _M(t,d) = !_M(t,d);
+	}
+#undef _M
+#undef _TM
+}
+
+/* SEXP deltamthd_(long *n, long *m, double *H, double *J, double *out, int *info); */
+/* SEXP Rdeltamthd(SEXP RH, SEXP RJ, SEXP Rout) { */
+/* 	SEXP dim, Rinfo; */
+/* 	long n, m; */
+/* 	Rinfo = PROTECT(allocVector(INTSXP, 1)); */
+/* 	dim = getAttrib(RJ, R_DimSymbol); */
+/* 	n = (long)(INTEGER(dim)[0]); */
+/* 	m = (long)(INTEGER(dim)[1]); */
+/* 	deltamthd_(&n, &m, (double*)R_ExternalPtrAddr(RH), REAL(RJ), REAL(Rout), INTEGER(Rinfo)); */
+/* 	UNPROTECT(1); */
+/* 	return Rinfo; */
+/* } */
+
+
+int chkusrhess_VwOrPhi(SEXP Robj, int VwOrPhi, int nparregime, int ku, int kv) {
+	int ld; SEXP Rdim;
+	switch (VwOrPhi) {
+	case 2: 		/* V */
+		ld = (ku*(ku+1))/2;   break;
+	case 1:			/* w */
+		ld = ku;              break;
+	case 0:			/* Phi */
+		ld = ku*kv;           break;
+	}
+	Rdim = getAttrib(Robj, R_DimSymbol);
+	return (TYPEOF(Robj) == REALSXP
+		&& (!isNull(Rdim))
+		&& TYPEOF(Rdim) == INTSXP
+		&& length(Rdim) == 3
+		&& (INTEGER(Rdim))[0] == ld
+		&& (INTEGER(Rdim))[1] == nparregime
+		&& (INTEGER(Rdim))[2] == nparregime);
+}
+void chkusrhess (SEXP Robj, int nparglobal, int nparregime, int nid, int pid, int ku, int kv) {
+	SEXP RVans, Rwans, RPhians;
+	if (TYPEOF(Robj) != VECSXP)
+		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+			  "parameterisation returned a non-list on node ID #%d (mother node is #%d).",
+			   nid+1, pid+1));
+	if (length(Robj) != 3)
+		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+			  "parameterisation returned a wrong-formatted list on node ID #%d. "
+			   "(mother node is #%d). The list should contains exactly three elements "
+			   "with names `V', `w', and `Phi'",
+			   nid+1, pid+1));
+	RVans   = Rlistelem(Robj, "V");
+	Rwans   = Rlistelem(Robj, "w");
+	RPhians = Rlistelem(Robj, "Phi");
+	if (! chkusrhess_VwOrPhi(RVans, 2, nparregime, ku, kv))
+		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+			   "parameterisation returned an wrong object on the `V' part of the returned "
+			   "list on node ID #%d (mother node is #%d). For this particular node, "
+			   "I expect that ans[['V']] "
+			   "is a %d-by-%d-by-%d array of double precision real numbers.",
+			   nid+1, pid+1, (ku*(ku+1))/2, nparregime, nparregime));
+	if (! chkusrhess_VwOrPhi(Rwans, 1, nparregime, ku, kv))
+		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+			   "parameterisation returned an wrong object on the `w' part of the returned "
+			   "list on node ID #%d (mother node is #%d). For this particular node, "
+			   "I expect that ans[['w']] "
+			   "is a %d-by-%d-by-%d array of double precision real numbers.",
+			   nid+1, pid+1, ku, nparregime, nparregime));
+	if (! chkusrhess_VwOrPhi(Rwans, 1, nparregime, ku, kv))
+		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+			   "parameterisation returned an wrong object on the `Phi' part of the returned "
+			   "list on node ID #%d (mother node is #%d). For this particular node, "
+			   "I expect that ans[['Phi']] "
+			   "is a %d-by-%d-by-%d array of double precision real numbers.",
+			   nid+1, pid+1, ku*kv, nparregime, nparregime));
+}
+
+SEXP Rchkusrhess(SEXP Robj, SEXP Rnparglobal, SEXP Rnparregime, SEXP Rnid, SEXP Rpid, SEXP Rku, SEXP Rkv) {
+	protdpth = -1;
+	chkusrhess(Robj,
+		   INTEGER(Rnparglobal)[0], INTEGER(Rnparregime)[0],
+		   INTEGER(Rnid)[0], INTEGER(Rpid)[0],
+		   INTEGER(Rku)[0],  INTEGER(Rkv)[0]);
+	return R_NilValue;
+}
+
+void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP Rcallpair, SEXP Rnodeidcell, SEXP env,
+	double *wsp) {
+	SEXP Rans, RVans, Rwans, RPhians;
+	struct node *p;
+	int *nodeid;
+	nodeid = INTEGER(Rnodeidcell);
+	*nodeid = (t->id)+1;
+	Rans = eval(Rcallpair, env); /* Trusted because the user function was wrapped and checked */
+	RVans = Rlistelem(Rans, "V");
+	Rwans = Rlistelem(Rans, "w");
+	RPhians = Rlistelem(Rans, "Phi");
+	curvifyupdate_( H, REAL(RVans), REAL(Rwans), REAL(RPhians),
+			&(npar), &(t->ndat.ku), &(kv),
+			t->ndat.dlikdv, t->ndat.dlikdw, t->ndat.dlikdphi,
+			wsp);
+	for (p = t->chd; p; p = p->nxtsb)
+		curvifyhess(H, p, npar, t->ndat.ku, Rcallpair, Rnodeidcell, env, wsp);
+}
+
+/*
+  Before:
+  
+  RH:   a write-only Hessian matrix to be updated
+  Rpar: parameters (in the user parameter space) at which the Hessian is evaluated
+  tr:   a tree which is decorated with dlikdv dlikdw dlikdphi.
+  fnh:  a function f, such that for each node n, f(n) returns
+        a list of three 3-D arrays, such that ans[['V']][Vij,,] is the
+        Hessian of V_ij wrt. to the user parametrisation; and so on
+        for 'w' and 'Phi'.
+
+  After:
+  RH is updated.
+  
+*/
+SEXP Rcurvifyhess(SEXP RH, SEXP Rpar, SEXP tr, SEXP fnh, SEXP env) {
+	/* R caller should check the type, mode and dimension of RH, tr and so on. */
+	SEXP Rnodeidcell, R_fcall;
+	double *wsp;
+	int npar;
+	struct node *t, *p;
+	t = (struct node *) R_ExternalPtrAddr(tr);
+	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
+	R_fcall     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
+	protdpth = 2;
+	npar = INTEGER(getAttrib(RH, R_DimSymbol))[0];
+	wsp = malloc((2 * npar * npar + 1) * sizeof(double));
+	if (!wsp) {
+		UNPROTECT(2);
+		protdpth = -1;
+		error("Rcurvifyhess(): failed in malloc()");
+	}
+	dzero(wsp, 2*npar*npar+1);
+	for (p = t->chd; p; p = p->nxtsb)
+		curvifyhess(REAL(RH), p, npar, t->ndat.ku, R_fcall, Rnodeidcell, env, wsp);
+	free(wsp);
+	UNPROTECT(2);
+	protdpth = -1;
+	return R_NilValue;
+}
+
+/* --- Utility "proper" interfaces to some Fortran functions ----- */
+
+/* Just sylgecpy_. v MUST be double and k MUST be integer. */
+SEXP Rsylgecpy(SEXP Rv, SEXP Rk) {
+	SEXP Rout; int *k;
+	k = INTEGER(Rk);
+	Rout = PROTECT(allocVector(REALSXP, (*k)*(*k)));
+	dzero(REAL(Rout), (*k)*(*k));
+	sylgecpy_(REAL(Rout), REAL(Rv), k);
+	UNPROTECT(1);
+	return Rout;
+}
+
+SEXP Runchol(SEXP Rv, SEXP Rk) {
+	double *wsp;
+	int lwsp, info, *k;
+	SEXP Rout;
+	k = INTEGER(Rk);
+	info = 0;
+	lwsp = (*k)*(*k);
+	if (!(wsp = malloc(lwsp*sizeof(double)))) error("Failed to allocate memory");
+	Rout = PROTECT(allocVector(REALSXP, (*k)*(*k)));
+	unchol_(REAL(Rv), k, wsp, &lwsp, REAL(Rout), &info);
+	if (info) error("Runchol: failed to revert logged-diagonal cholesky. INFO=%d", info);
+	free(wsp);
+	UNPROTECT(1);
+	return Rout;
+}
+
+SEXP Rlnunchol(SEXP Rv, SEXP Rk) {
+	double *wsp;
+	int lwsp, info, *k;
+	SEXP Rout;
+	k = INTEGER(Rk);
+	info = 0;
+	lwsp = (*k)*(*k);
+	if (!(wsp = malloc(lwsp*sizeof(double)))) error("Failed to allocate memory");
+	Rout = PROTECT(allocVector(REALSXP, (*k)*(*k)));
+	lnunchol_(REAL(Rv), k, wsp, &lwsp, REAL(Rout), &info);
+	if (info) error("Rlnunchol: failed to revert logged-diagonal cholesky. INFO=%d", info);
+	free(wsp);
+	UNPROTECT(1);
+	return Rout;
+}
+
+SEXP Rlnchnunchol(SEXP RDFDH, SEXP RL, SEXP Rm, SEXP Rk) {
+	SEXP Rout, Rdim;
+	int *m, *k, *dim;
+	m = INTEGER(Rm);
+	k = INTEGER(Rk);
+	Rout = PROTECT(allocVector(REALSXP, (*m)*((*k)*((*k)+1))/2));
+	Rdim = PROTECT(allocVector(INTSXP, 2));
+	dim = INTEGER(Rdim);
+	dim[0] = *m;
+	dim[1] = ((*k)*((*k)+1))/2;
+	setAttrib(Rout, R_DimSymbol, Rdim);
+	dzero(REAL(Rout), (*m)*((*k)*((*k)+1))/2);
+	dlnchnunchol_(REAL(RDFDH), REAL(RL), m, k, REAL(Rout));
+	UNPROTECT(2);
+	return Rout;
+}
+
+SEXP Rchnunchol(SEXP RDFDH, SEXP RL, SEXP Rm, SEXP Rk) {
+	SEXP Rout, Rdim;
+	int *m, *k, *dim;
+	m	= INTEGER(Rm);
+	k	= INTEGER(Rk);
+	Rout	= PROTECT(allocVector(REALSXP, (*m)*((*k)*((*k)+1))/2));
+	Rdim	= PROTECT(allocVector(INTSXP, 2));
+	dim	= INTEGER(Rdim);
+	dim[0]	= *m;
+	dim[1]	= ((*k)*((*k)+1))/2;
+	setAttrib(Rout, R_DimSymbol, Rdim);
+	dzero(REAL(Rout), (*m)*((*k)*((*k)+1))/2);
+	dchnunchol_(REAL(RDFDH), REAL(RL), m, k, REAL(Rout));
+	UNPROTECT(2);
+	return Rout;
+}
+
+SEXP Rhouchnsymh(SEXP Rhess, SEXP Rk) {
+	SEXP Rout, Rorigdim, Rnewdim;
+	int *origdim, *newdim, *k, newlen;
+	double *out;
+	Rorigdim	= getAttrib(Rhess, R_DimSymbol);
+	origdim		= INTEGER(Rorigdim);
+	k		= INTEGER(Rk);
+	Rnewdim		= PROTECT(allocVector(INTSXP, 3));
+	newdim		= INTEGER(Rnewdim);
+	newdim[0]	= origdim[0];
+	newdim[1]	= origdim[1]-(*k)*(*k)+(((*k)*((*k)+1))/2);
+	newdim[2]	= newdim[1];
+	newlen		= newdim[0]*newdim[1]*newdim[2];
+	Rout		= PROTECT(allocVector(REALSXP, newlen));
+	out		= REAL(Rout);
+	dzero(out, newlen);
+	houchnsymh_(REAL(Rhess), newdim, k, origdim+1, out);
+	setAttrib(Rout, R_DimSymbol, Rnewdim);
+	UNPROTECT(2);
+	return Rout;
+}
+
+SEXP hougespdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset, int ln) {
+	SEXP Rout, Rorigdim, Rnewdim, Rjacdim;
+	int *origdim, *newdim, *k,  npar_new, newlen, *ldjac;
+	double *out;
+	Rjacdim         = getAttrib(Rjacres, R_DimSymbol);
+	ldjac           = INTEGER(Rjacdim);
+	Rorigdim	= getAttrib(Rhess, R_DimSymbol);
+	origdim		= INTEGER(Rorigdim);
+	k		= INTEGER(Rk);
+	Rnewdim		= PROTECT(allocVector(INTSXP, 3));
+	npar_new        = length(Rpar);
+	newdim		= INTEGER(Rnewdim);
+	newdim[0]	= origdim[0];
+	newdim[1]	= npar_new;
+	newdim[2]	= newdim[1];
+	newlen		= newdim[0]*newdim[1]*newdim[2];
+	Rout		= PROTECT(allocVector(REALSXP, newlen));
+	out		= REAL(Rout);
+	dzero(out, newlen);
+	if (ln) houlnspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
+			 newdim, k, origdim+1, &npar_new, out);
+	else    houspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
+			 newdim, k, origdim+1, &npar_new, out);
+	setAttrib(Rout, R_DimSymbol, Rnewdim);
+	UNPROTECT(2);
+	return Rout;
+}
+SEXP Rhouspdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset) {
+	return hougespdh(Rhess, Rk, Rpar, Rjacres, Rjoffset, 0);
+}
+SEXP Rhoulnspdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset) {
+	return hougespdh(Rhess, Rk, Rpar, Rjacres, Rjoffset, 1);
+}
+
+
+/* Einstein summation ijk,j->ijk */
+SEXP Reinsumijk_j_2_ijk(SEXP RX, SEXP RY) {
+	SEXP RdimX, Rres, Rdim_res;
+	double *X, *Y, *res;
+	int i,j,k,  nx1,nx2,nx3,ny, *dim_res;
+	RdimX = getAttrib(RX, R_DimSymbol);
+	nx1 = INTEGER(RdimX)[0];
+	nx2 = INTEGER(RdimX)[1];
+	nx3 = INTEGER(RdimX)[2];
+	ny  = length(RY);
+	if (nx2 != ny) {
+		error("Reinsumijk_j_2_ijk: Dimensionality mismatch. Cannot do Einstein summation.");
+	}
+	X = REAL(RX);
+	Y = REAL(RY);
+	Rres    = PROTECT(allocVector(REALSXP, nx1*nx2*nx3));
+	Rdim_res = PROTECT(allocVector(INTSXP, 3));
+	res = REAL(Rres);
+	dim_res = INTEGER(Rdim_res);
+	dim_res[0] = nx1;
+	dim_res[1] = nx2;
+	dim_res[2] = nx3;
+	setAttrib(Rres, R_DimSymbol, Rdim_res);
+	dzero(res, nx1*nx2*nx3);
+	for (k=0;k<nx3;++k) {
+		for(i=0;i<nx1;++i) {
+			for (j=0;j<nx2;++j) {
+				res[i+j*nx1+k*nx1*nx2] += X[i+j*nx1+k*nx1*nx2] * Y[j];
+			}
+		}
+	}
+	UNPROTECT(2);
+	return Rres;
+}
+
+
+/* Einstein summation ijk,k->ijk */
+SEXP Reinsumijk_k_2_ijk(SEXP RX, SEXP RY) {
+	SEXP RdimX, Rres, Rdim_res;
+	double *X, *Y, *res;
+	int i,j,k,  nx1,nx2,nx3,ny, *dim_res;
+	RdimX = getAttrib(RX, R_DimSymbol);
+	nx1 = INTEGER(RdimX)[0];
+	nx2 = INTEGER(RdimX)[1];
+	nx3 = INTEGER(RdimX)[2];
+	ny  = length(RY);
+	if (nx3 != ny) {
+		error("Reinsumijk_j_2_ijk: Dimensionality mismatch. Cannot do Einstein summation.");
+	}
+	X = REAL(RX);
+	Y = REAL(RY);
+	Rres    = PROTECT(allocVector(REALSXP, nx1*nx2*nx3));
+	Rdim_res = PROTECT(allocVector(INTSXP, 3));
+	res = REAL(Rres);
+	dim_res = INTEGER(Rdim_res);
+	dim_res[0] = nx1;
+	dim_res[1] = nx2;
+	dim_res[2] = nx3;
+	setAttrib(Rres, R_DimSymbol, Rdim_res);
+	dzero(res, nx1*nx2*nx3);
+	for (k=0;k<nx3;++k) {
+		for (j=0;j<nx2;++j) {
+			for(i=0;i<nx1;++i) {
+				res[i+j*nx1+k*nx1*nx2] += X[i+j*nx1+k*nx1*nx2] * Y[k];
+			}
+		}
+	}
+	UNPROTECT(2);
+	return Rres;
+}

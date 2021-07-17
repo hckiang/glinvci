@@ -1,0 +1,13 @@
+doc
+Meta
+Read-and-delete-me
+buildscript.sh
+src/*.o
+src/*.so
+src/*.dll
+src/*/*.o
+src/*/*.so
+src/*/*.dll
+.RData
+.Rhistory
+*.log

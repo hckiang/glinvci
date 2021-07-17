@@ -1,0 +1,23 @@
+Package: glinvci
+Type: Package
+Title: Multivariate Phylogenetic Comparative Methods with Confidence Intervals Support
+Version: 1.0
+Date: 2021-07-16
+Author: Hao Chi Kiang
+Maintainer: Hao Chi Kiang <hello@hckiang.com>
+Description: The glinvci package provides a framework for computing the maximum-likelihood estimates and asymptotic confidence intervals of a class of continuous-time Gaussian branching processes, including the Ornstein-Uhlenbeck branching process, which is commonly used in phylogenetic comparative methods. The framework is designed to be flexible enough that the user can easily specify their own parameterisation and obtain the maximum-likelihood estimates and confidence intervals of their own parameters.
+License: GPL-3
+RoxygenNote: 7.1.1
+VignetteBuilder: knitr
+Encoding: UTF-8
+Imports:
+    Rcgmin,
+    lbfgsb3c,
+    BB,
+    ape,
+    numDeriv,
+    plyr
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat
