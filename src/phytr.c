@@ -143,12 +143,17 @@ static int protdpth = -1;    /* Keeps track of the R GC PROTECT() depth. */
   We store the Hessian as a uplo='L' format. It's simply a storage scheme and
   users won't see this at all.
 */
+extern void glinvtestfloatIEEE01_(double *x, double*out);
+extern void hchnlndiag_(double *Hnew, int *nnew, double *Hold, int *nold, double *par,
+			double *djacthis, int *ildjac, int *joffset, int *m, int *istart, int *k);
+extern void hesschopnondiag_(double *Hnew, int *nnew, double *Hold, int *nold, int *m, int *istart, int *k);
+extern void hesscpyskip_(double *Hnew, int *nnew, double *Hold, int *nold, int *m, int *istart, int *ihowmuch);
 extern void bilinupdt_(double *d, double *hessflat, long *npar, long *idx1, long *idx2, double *dir, int *ndir);
 extern void houspdh_(double *Horig, double *par, double *djac, int *ldjac, int *joffset, int *m,
-		     int *k, int *npar_orig, int *npar_new, double *out);
+		     int *k, int *npar_orig, int *npar_new, int *ithis, double *out);
 extern void houlnspdh_(double *Horig, double *par, double *djac, int *ldjac, int *joffset, int *m,
-		       int *k, int *npar_orig, int *npar_new, double *out);
-extern void houchnsymh_(double *Horig, int *m, int *k, int *nparorig, double *out);
+		       int *k, int *npar_orig, int *npar_new, int *ithis, double *out);
+extern void houchnsymh_(double *Horig, int *m, int *k, int *nparorig, int *ithis, double *out);
 extern void dchnunchol_(double *DFDH, double *L, int *m, int *k, double *DFDL);
 extern void dlnchnunchol_(double *DFDH, double *L, int *m, int *k, double *DFDL);
 extern void lnunchol_(double *sig_x, int *k, double *wsp, int *lwsp, double *out, int *info);
@@ -2467,7 +2472,7 @@ SEXP Rchnunchol(SEXP RDFDH, SEXP RL, SEXP Rm, SEXP Rk) {
 
 SEXP Rhouchnsymh(SEXP Rhess, SEXP Rk) {
 	SEXP Rout, Rorigdim, Rnewdim;
-	int *origdim, *newdim, *k, newlen;
+	int *origdim, *newdim, *k, newlen, ithis;
 	double *out;
 	Rorigdim	= getAttrib(Rhess, R_DimSymbol);
 	origdim		= INTEGER(Rorigdim);
@@ -2481,7 +2486,8 @@ SEXP Rhouchnsymh(SEXP Rhess, SEXP Rk) {
 	Rout		= PROTECT(allocVector(REALSXP, newlen));
 	out		= REAL(Rout);
 	dzero(out, newlen);
-	houchnsymh_(REAL(Rhess), newdim, k, origdim+1, out);
+	ithis = 0;
+	houchnsymh_(REAL(Rhess), newdim, k, origdim+1, &ithis, out);
 	setAttrib(Rout, R_DimSymbol, Rnewdim);
 	UNPROTECT(2);
 	return Rout;
@@ -2489,7 +2495,7 @@ SEXP Rhouchnsymh(SEXP Rhess, SEXP Rk) {
 
 SEXP hougespdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset, int ln) {
 	SEXP Rout, Rorigdim, Rnewdim, Rjacdim;
-	int *origdim, *newdim, *k,  npar_new, newlen, *ldjac;
+	int *origdim, *newdim, *k,  npar_new, newlen, *ldjac, ithis;
 	double *out;
 	Rjacdim         = getAttrib(Rjacres, R_DimSymbol);
 	ldjac           = INTEGER(Rjacdim);
@@ -2506,10 +2512,13 @@ SEXP hougespdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset, int 
 	Rout		= PROTECT(allocVector(REALSXP, newlen));
 	out		= REAL(Rout);
 	dzero(out, newlen);
+	ithis           = 0;
 	if (ln) houlnspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
-			 newdim, k, origdim+1, &npar_new, out);
-	else    houspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
-			 newdim, k, origdim+1, &npar_new, out);
+			   newdim, k, origdim+1, &npar_new, &ithis, out);
+	else {
+		houspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
+			 newdim, k, origdim+1, &npar_new, &ithis, out);
+	}
 	setAttrib(Rout, R_DimSymbol, Rnewdim);
 	UNPROTECT(2);
 	return Rout;
@@ -2549,7 +2558,7 @@ SEXP Reinsumijk_j_2_ijk(SEXP RX, SEXP RY) {
 	for (k=0;k<nx3;++k) {
 		for(i=0;i<nx1;++i) {
 			for (j=0;j<nx2;++j) {
-				res[i+j*nx1+k*nx1*nx2] += X[i+j*nx1+k*nx1*nx2] * Y[j];
+				res[i+j*nx1+k*nx1*nx2] = X[i+j*nx1+k*nx1*nx2] * Y[j];
 			}
 		}
 	}
@@ -2585,10 +2594,695 @@ SEXP Reinsumijk_k_2_ijk(SEXP RX, SEXP RY) {
 	for (k=0;k<nx3;++k) {
 		for (j=0;j<nx2;++j) {
 			for(i=0;i<nx1;++i) {
-				res[i+j*nx1+k*nx1*nx2] += X[i+j*nx1+k*nx1*nx2] * Y[k];
+				res[i+j*nx1+k*nx1*nx2] = X[i+j*nx1+k*nx1*nx2] * Y[k];
 			}
 		}
 	}
 	UNPROTECT(2);
 	return Rres;
+}
+
+SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
+	SEXP Rout;
+	const char *cmdstr;
+	double *in, *out;
+	int len_par, len_out, k;
+        /* 1: Expects output type or termination;
+           2: Expects input type for 'M';
+           3: Expects input type for 'V';
+           4: Expects input type for 'L';
+           (5: Expects input type argument.) */
+	int curstate = 1, i, iout, iin;
+	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
+	cmdstr = CHAR(STRING_ELT(Rcmdstr,0));
+	in     = REAL(Rpar);
+	len_par= length(Rpar);
+	k      = INTEGER(Rk)[0];
+	/* Count output length. */
+	for (i=0; cmdstr[i]; ++i) {
+		switch (cmdstr[i]) {
+		case 'M':       /* Matrix  */
+			++cnt_M;
+			break;
+		case 'V':       /* Vector  */
+			++cnt_V;
+			break;
+		case 'L':	/* Lower triangular  */
+			++cnt_L;
+			break;
+		++i;
+		}
+	}
+	if (i == 0) error("Rparamrestrict(): parameter restriction does not contain any 'M', 'v', or 'L'.");
+	len_out = cnt_M*k*k + cnt_V*k + cnt_L*(k*(k+1))/2;
+	/* Allocate the output according to len_out */
+	Rout = PROTECT(allocVector(REALSXP, len_out));
+	out  = REAL(Rout);
+	for (i = 0; i<len_out; ++i) out[i] = -1000000.0;
+	/* Now parse the string. */
+	i = 0;
+	iout = 0;
+	iin  = 0;
+	while (cmdstr[i]) {
+		switch (curstate) {
+		case 1: /* Expects output type or termination; */
+			if (cmdstr[i] == 'M')          curstate = 2;
+			else if (cmdstr[i] == 'V')     curstate = 3;
+			else if (cmdstr[i] == 'L')     curstate = 4;
+			else {
+				UNPROTECT(1);
+				error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		case 2: /* Expects input argument for 'M'; */
+			if (cmdstr[i] == 's') {                /* symmetric */
+				sylgecpy_(out+iout,in+iin,&k);
+				iin  += (k*(k+1))/2;
+				iout += k*k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'l') {        /* Log cholesky */
+				double *wsp;    int lwsp = k*k;    int info = 0;
+				if (!(wsp = malloc(lwsp*sizeof(double)))) {
+					UNPROTECT(1);
+					error("Failed to allocate memory");
+				}
+				lnunchol_(in+iin, &k, wsp, &lwsp, out+iout, &info);
+				free(wsp);
+				if (info) {
+					UNPROTECT(1);
+					error("Failed to revert logged-diagonal cholesky. INFO=%d", info);
+				}
+				iin  += (k*(k+1))/2;
+				iout += k*k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'c') { /* cholesky */
+				double *wsp;    int lwsp = k*k;    int info = 0;
+				if (!(wsp = malloc(lwsp*sizeof(double)))) {
+					UNPROTECT(1);
+					error("Failed to allocate memory");
+				}
+				unchol_(in+iin, &k, wsp, &lwsp, out+iout, &info);
+				free(wsp);
+				if (info) {
+					UNPROTECT(1);
+					error("Failed to revert logged-diagonal cholesky. INFO=%d", info);
+				}
+				iin  += (k*(k+1))/2;
+				iout += k*k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'd') { /* diagonal */
+				/* Construct a flattened diagonal matrix. */
+				int jdiag=0;/* Diagonal counter */
+				if (iin+k > len_par) {
+					UNPROTECT(1);
+					error("Passed in parameter vector is too short", i, cmdstr[i]);
+				}
+				for (int jcol=0; jcol < k; ++jcol) { /* for each column */
+					int jrow=0;
+					while (jrow < jdiag) { out[iout++]=0.0; ++jrow; }
+					out[iout++] = in[iin++];
+					++jrow;
+					while (jrow < k) { out[iout++]=0.0; ++jrow; };
+					++jdiag;
+				}
+				curstate = 1;
+			} else if (cmdstr[i] == 'e') { /* log-diagonal */
+				/* Construct a flattened diagonal matrix. */
+				int jdiag=0;/* Diagonal counter */
+				if (iin+k > len_par) {
+					UNPROTECT(1);
+					error("Passed in parameter vector is too short", i, cmdstr[i]);
+				}
+				for (int jcol=0; jcol < k; ++jcol) { /* for each column */
+					int jrow=0;
+					while (jrow < jdiag) { out[iout++]=0.0; ++jrow; }
+					out[iout++] = exp(in[iin++]);
+					++jrow;
+					while (jrow < k) { out[iout++]=0.0; ++jrow; };
+					++jdiag;
+				}
+				curstate = 1;
+			} else if (cmdstr[i] == '0') { /* zero out */
+				for (int j=0; j<k*k; ++j) out[iout++] = 0.0;
+				curstate = 1;
+			} else if (cmdstr[i] == 'k') { /* keep the same */
+				/* Copy the entire kxk matrix */
+				if (iin+k*k > len_par) {
+					UNPROTECT(1);
+					error("Passed in parameter vector is too short", i, cmdstr[i]);
+				}
+				for (int j=0; j<k*k; ++j) out[iout++] = in[iin++];
+				curstate = 1;
+			} else {
+				UNPROTECT(1);
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		case 3: /* Expects input argument for 'V'; */
+			if (cmdstr[i] == '0') { /* zero out */
+				for (int j=0; j<k; ++j) out[iout++] = 0.0;
+				curstate = 1;
+			} else if (cmdstr[i] == 'k') { /* keep the same */
+				/* Copy a k-vector */
+				if (iin+k > len_par) {
+					UNPROTECT(1);
+					error("Passed in parameter vector is too short", i, cmdstr[i]);
+				}
+				for (int j=0; j<k; ++j) out[iout++] = in[iin++];
+				curstate = 1;
+			} else {
+				UNPROTECT(1);
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		case 4: 	/* Expects input argument for 'L' */
+			if (cmdstr[i] == 'k') { /* keep the same */
+				if (iin+(k*(k+1))/2 > len_par) {
+					UNPROTECT(1);
+					error("Passed in parameter vector is too short", i, cmdstr[i]);
+				}
+				for (int j=0; j<(k*(k+1))/2; ++j) out[iout++] = in[iin++];
+				curstate = 1;
+			} else {
+				UNPROTECT(1);
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		}
+		++i;
+	}
+	if (iin != len_par) {
+		UNPROTECT(1);
+		error("Passed in parameter vector is too long");
+	}
+	UNPROTECT(1);
+	return Rout;
+}
+
+/* Post-process jacobian_original(restricted_par) so that new Jacobian is
+   the Jacobian of the parfn_original(restricted_par). */
+SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
+	SEXP Rjacout, Rdim_jacin, Rdim_jacout;
+	const char *cmdstr;
+	double *parin, *jacout, *jacin;
+	int len_parin, len_jacout, len_jacin, len_rng, len_jaccolorig, k, *dim_jacout;
+        /* 1: Expects output type or termination;
+           2: Expects input type for 'M';
+           3: Expects input type for 'V';
+           4: Expects input type for 'L';
+           (5: Expects further argument. Not yet implemented.) */
+	int curstate = 1, i, ijacout, ijacin;
+	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
+	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
+	parin    = REAL(Rpar);
+	jacin    = REAL(Rjac);
+	len_parin= length(Rpar);
+	k        = INTEGER(Rk)[0];
+	/* Count output length. */
+	for (i=0; cmdstr[i]; ++i) {
+		switch (cmdstr[i]) {
+		case 'M':       /* Matrix  */
+			++cnt_M;
+			break;
+		case 'V':       /* Vector  */
+			++cnt_V;
+			break;
+		case 'L':	/* Lower triangular  */
+			++cnt_L;
+			break;
+		++i;
+		}
+	}
+	if (i == 0) error("parameter restriction does not contain any 'M', 'v', or 'L'.");
+	/* How many dimension is the jac function's range? */
+	Rdim_jacin = getAttrib(Rjac, R_DimSymbol);
+	len_rng  = INTEGER(Rdim_jacin)[0];
+	len_jaccolorig = cnt_M*k*k + cnt_V*k + cnt_L*(k*(k+1))/2; /* Need to check counters against this*/
+	if (INTEGER(Rdim_jacin)[1] != len_jaccolorig) {
+		error("The passed-in Jacobian should have %d rows but it has %d", len_jaccolorig, INTEGER(Rdim_jacin)[1]);
+	}
+	len_jacout = len_rng*len_parin;
+	/* Allocate the output according to len_out */
+	Rjacout = PROTECT(allocVector(REALSXP, len_jacout));
+	jacout  = REAL(Rjacout);
+	
+	for (i = 0; i<len_jacout; ++i) jacout[i] = 0.0;
+
+	/* Now parse the string. */
+	i = 0;
+	ijacout = 0;
+	ijacin  = 0;
+	while (cmdstr[i]) {
+		switch (curstate) {
+		case 1: /* Expects output type or termination; */
+			if (cmdstr[i] == 'M')          curstate = 2;
+			else if (cmdstr[i] == 'V')     curstate = 3;
+			else if (cmdstr[i] == 'L')     curstate = 4;
+			else {
+				UNPROTECT(1);
+				error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		case 2: /* Expects input argument for 'M'; */
+			if (cmdstr[i] == 's') {                /* symmetric */
+				/* Sums up the lower and upper part to make the new lower part */
+				int ioutidx, ifinx, ifiny;
+				for (int iiny = 0; iiny < k; ++iiny) {
+					int iinx;
+					ifiny = iiny+1;
+					for (iinx = 0; iinx < iiny; ++iinx) {
+						ifinx = iinx+1;
+						ioutidx = ijacout+iijtouplolidx_(&k, &ifiny, &ifinx)-1; /* x<y */
+						for (int jrng=0; jrng < len_rng; ++jrng)
+							jacout[jrng+ioutidx*len_rng]+= jacin[jrng+ijacin*len_rng];
+						++ijacin;
+					}
+					for (; iinx < k; ++iinx) {
+						ifinx = iinx+1; ifiny = iiny+1;
+						ioutidx = ijacout+iijtouplolidx_(&k, &ifinx, &ifiny)-1; /* y<x */
+						for (int jrng=0; jrng < len_rng; ++jrng)
+							jacout[jrng+ioutidx*len_rng]+= jacin[jrng+ijacin*len_rng];
+						++ijacin;
+					}
+				}
+				ijacout += (k*(k+1))/2;
+				curstate = 1;
+			} else if (cmdstr[i] == 'l') { /* Log cholesky */
+				dlnchnunchol_(jacin+ijacin*len_rng, parin+ijacin, &len_rng, &k, jacout+ijacout);
+				ijacin  += k*k;
+				ijacout += (k*(k+1))/2;
+				curstate = 1;
+			} else if (cmdstr[i] == 'c') { /* cholesky */
+				dchnunchol_(jacin+ijacin*len_rng, parin+ijacin, &len_rng, &k, jacout+ijacout);
+				ijacin  += k*k;
+				ijacout += (k*(k+1))/2;
+				curstate = 1;
+			} else if (cmdstr[i] == 'd') { /* diagonal */
+				int jdiag=0;/* Diagonal counter */
+				for (int ipcol=0; ipcol < k; ++ipcol) { /* for each column */
+					ijacin += jdiag;
+					for (int jrng=0; jrng < len_rng; ++jrng)
+						jacout[jrng+ijacout*len_rng]= jacin[jrng+ijacin*len_rng];
+					ijacin += k - jdiag;
+					++ijacout;
+					++jdiag;
+				}
+				curstate = 1;
+			} else if (cmdstr[i] == 'e') { /* log-diagonal */
+				int jdiag=0;/* Diagonal counter */
+				for (int ipcol=0; ipcol < k; ++ipcol) { /* for each column */
+					ijacin += jdiag;
+					for (int jrng=0; jrng < len_rng; ++jrng)
+						jacout[jrng+ijacout*len_rng]= jacin[jrng+ijacin*len_rng] * exp(parin[ijacout]);
+					ijacin += k - jdiag;
+					++ijacout;
+					++jdiag;
+				}
+				curstate = 1;
+			} else if (cmdstr[i] == '0') { /* zero out */
+				ijacin += k*k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'k') { /* keep the same */
+				/* Copy the entire chunk of Jacobian */
+				for (int j=0; j<k*k; ++j) {
+					for (int jrng=0; jrng < len_rng; ++jrng) {
+						jacout[jrng+ijacout*len_rng]= jacin[jrng+ijacin*len_rng];
+					}
+					++ijacout;
+					++ijacin;
+				}
+				curstate = 1;
+			} else {
+				UNPROTECT(1);
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		case 3: /* Expects input argument for 'V'; */
+			if (cmdstr[i] == '0') { /* zero out */
+				ijacin += k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'k') { /* keep the same */
+				/* Copy the entire chunk of Jacobian */
+				for (int j=0; j<k; ++j) {
+					for (int jrng=0; jrng < len_rng; ++jrng)
+						jacout[jrng+ijacout*len_rng]= jacin[jrng+ijacin*len_rng];
+					++ijacout;
+					++ijacin;
+				}
+				curstate = 1;
+			} else {
+				UNPROTECT(1);
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		case 4: 	/* Expects input argument for 'L' */
+			if (cmdstr[i] == 'k') { /* keep the same */
+				/* Copy the entire chunk of Jacobian */
+				for (int j=0; j<(k*(k+1))/2; ++j) {
+					for (int jrng=0; jrng < len_rng; ++jrng)
+						jacout[jrng+ijacout*len_rng]= jacin[jrng+ijacin*len_rng];
+					++ijacout;
+					++ijacin;
+				}
+				curstate = 1;
+			} else {
+				UNPROTECT(1);
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+			}
+			break;
+		}
+		++i;
+	}
+	/* Add dim attributes to the output */
+	Rdim_jacout = PROTECT(allocVector(INTSXP, 2));
+	dim_jacout = INTEGER(Rdim_jacout);
+	dim_jacout[0] = len_rng;
+	dim_jacout[1] = len_parin;
+	setAttrib(Rjacout, R_DimSymbol, Rdim_jacout);
+	UNPROTECT(2);
+	return Rjacout;
+}
+
+
+/* 
+   Same as Rpostjacrestrict but for Hessian. Last two arguemnts can be NULL if not needed.
+   Rhess is a Hessian, not a named list.
+*/
+SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
+		       SEXP Rjaclower, SEXP Rjloweroffset, SEXP Rjacthis, SEXP Rjthisoffset_r, SEXP Rjthisoffset_c) {
+	SEXP Rhessin, Rhessout, Rdim_hessin, Rdim_hessout;
+	const char *cmdstr;
+	double *parin, *hessout, *hessin, *jaclower, *hessouttmp, *jacthis;
+	int len_parin, len_hessout, len_hessin, len_rng, len_hesscolorig, k, *dim_hessout,
+		jloweroffset, ld_jaclower, ld_jacthis, len_hesscurr, jthisoffset_r, jthisoffset_c;
+        /* 1: Expects output type or termination;
+           2: Expects input type for 'M';
+           3: Expects input type for 'V';
+           4: Expects input type for 'L';
+           (5: Expects further argument. Not yet implemented.) */
+	int curstate = 1, i, ihessin, isquashed;
+	int chked_jaclower = 0;
+	int chked_jacthis = 0;
+	int pass = 1;
+	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
+	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
+	parin    = REAL(Rpar);
+	hessin    = REAL(Rhess);
+	len_parin= length(Rpar);
+	k        = INTEGER(Rk)[0];
+	/* Count output length. */
+	for (i=0; cmdstr[i]; ++i) {
+		switch (cmdstr[i]) {
+		case 'M':       /* Matrix  */
+			++cnt_M;
+			break;
+		case 'V':       /* Vector  */
+			++cnt_V;
+			break;
+		case 'L':	/* Lower triangular  */
+			++cnt_L;
+			break;
+		++i;
+		}
+	}
+	if (i == 0) error("parameter restriction does not contain any 'M', 'v', or 'L'.");
+	/* How many dimension is the Hessian function's range? */
+	Rdim_hessin = getAttrib(Rhess, R_DimSymbol);
+	len_rng  = INTEGER(Rdim_hessin)[0];
+	len_hesscolorig = cnt_M*k*k + cnt_V*k + cnt_L*(k*(k+1))/2;
+	if (INTEGER(Rdim_hessin)[1] != len_hesscolorig || INTEGER(Rdim_hessin)[2] != len_hesscolorig)
+		error("The passed-in Hessian has a wrong dimension.");
+	len_hessout = len_rng*len_parin*len_parin;
+	/* Allocate the temporary storage for each step and copy the original hessian into here. */
+	if (!(hessouttmp = malloc(len_rng*len_hesscolorig*len_hesscolorig*sizeof(double))))
+		error("Failed to allocate memory.");
+	memcpy(hessouttmp, hessin, len_rng*len_hesscolorig*len_hesscolorig*sizeof(double));
+	/* Allocate the output according to len_out */
+	Rhessout = PROTECT(allocVector(REALSXP, len_hessout));
+	protdpth = 1;
+	hessout  = REAL(Rhessout);
+	len_hesscurr = len_hesscolorig; /* Will be decreased step-by-step until it reaches len_parin. */
+	for (i = 0; i<len_hessout; ++i) hessout[i] = 0.0;
+	/* Now parse the string. */
+	i = 0;
+	isquashed= 0;
+	ihessin  = 0;
+	while (cmdstr[i]) {
+		switch (curstate) {
+		case 1: /* Expects output type or termination; */
+			if      (cmdstr[i] == 'M')     curstate = 2;
+			else if (cmdstr[i] == 'V')     curstate = 3;
+			else if (cmdstr[i] == 'L')     curstate = 4;
+			else { RUPROTERR(("Expected output type declaration at position %d but got '%s'", i, cmdstr[i])); }
+			break;
+		case 2: /* Expects input argument for 'M'; */
+			if (cmdstr[i] == 's') {        /* symmetric */
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				int nskip = k*k-(k*(k+1))/2; /* NOTE! Can be zero, if and only if k=1. */
+				if (nskip == 0) {
+					/* do nothing */
+					ihessin += 1;
+					isquashed+= 1;
+				} else {
+					len_hesscurr_new = len_hesscurr - nskip;
+					if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+						goto MEMFAIL;
+					houchnsymh_(hessouttmp, &len_rng, &k, &len_hesscurr, &isquashed, hessouttmp_new);
+					free(hessouttmp);
+					hessouttmp   = hessouttmp_new;
+					len_hesscurr = len_hesscurr_new;
+					ihessin += k*k;
+					isquashed += (k*(k+1))/2;
+				}
+				curstate = 1;
+			} else if (cmdstr[i] == 'l') { /* Log cholesky */
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				if (isNull(Rjaclower)) { RUPROTERR(("Log-Cholesky 2nd-order chain rule required but Rjaclower is NULL")); }
+				if (!chked_jaclower) {
+					SEXP Rdim_jaclower;
+					if (TYPEOF(Rjaclower) != REALSXP)
+						RUPROTERR(("Cholesky 2nd-order chain rule required but Rjaclower is NULL"));
+					Rdim_jaclower = getAttrib(Rjaclower, R_DimSymbol);
+					if (TYPEOF(Rdim_jaclower) != INTSXP || length(Rdim_jaclower) != 2)
+						RUPROTERR(("Rjaclower must be two-dimensional"));
+					if (INTEGER(Rdim_jaclower)[1] != len_hesscolorig)
+						RUPROTERR(("ncol(Rjaclower) mismatches the original Hessian"));
+					if (TYPEOF(Rjloweroffset) != INTSXP || length(Rjloweroffset) != 1)
+						RUPROTERR(("Rjloweroffset is not an integer. Please as.integer() if called from R."));
+					jloweroffset = INTEGER(Rjloweroffset)[0];
+					ld_jaclower = INTEGER(Rdim_jaclower)[0];
+					if (jloweroffset + len_rng > ld_jaclower || jloweroffset < 0)
+					        RUPROTERR(("Rjloweroffset is too big or negative"));
+					jaclower = REAL(Rjaclower);
+					chked_jaclower = 1;
+				}
+				len_hesscurr_new = len_hesscurr - k*k + (k*(k+1))/2;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				dzero(hessouttmp_new, len_rng*len_hesscurr_new*len_hesscurr_new);
+				houlnspdh_(hessouttmp, parin+isquashed, jaclower, &ld_jaclower, &jloweroffset,
+					   &len_rng, &k, &len_hesscurr, &len_hesscurr_new, &isquashed, hessouttmp_new);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin += k*k;
+				isquashed += (k*(k+1))/2;
+				curstate = 1;
+			} else if (cmdstr[i] == 'c') { /* cholesky */
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				if (isNull(Rjaclower)) { RUPROTERR(("Log-Cholesky 2nd-order chain rule required but Rjaclower is NULL")); }
+				if (!chked_jaclower) {
+					SEXP Rdim_jaclower;
+					if (TYPEOF(Rjaclower) != REALSXP)
+						RUPROTERR(("Cholesky 2nd-order chain rule required but Rjaclower is NULL"));
+					Rdim_jaclower = getAttrib(Rjaclower, R_DimSymbol);
+					if (TYPEOF(Rdim_jaclower) != INTSXP || length(Rdim_jaclower) != 2)
+						RUPROTERR(("Rjaclower must be two-dimensional"));
+					if (INTEGER(Rdim_jaclower)[1] != len_hesscolorig)
+						RUPROTERR(("ncol(Rjaclower) mismatches the original Hessian"));
+					if (TYPEOF(Rjloweroffset) != INTSXP || length(Rjloweroffset) != 1)
+						RUPROTERR(("Rjloweroffset is not an integer. Please as.integer() if called from R."));
+					jloweroffset = INTEGER(Rjloweroffset)[0];
+					ld_jaclower = INTEGER(Rdim_jaclower)[0];
+					if (jloweroffset + len_rng > ld_jaclower || jloweroffset < 0)
+					        RUPROTERR(("Rjloweroffset is too big or negative"));
+					jaclower = REAL(Rjaclower);
+					chked_jaclower = 1;
+				}
+				len_hesscurr_new = len_hesscurr - k*k + (k*(k+1))/2;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				dzero(hessouttmp_new, len_rng*len_hesscurr_new*len_hesscurr_new);
+				houspdh_(hessouttmp, parin+isquashed, jaclower, &ld_jaclower, &jloweroffset,
+					 &len_rng, &k, &len_hesscurr, &len_hesscurr_new, &isquashed, hessouttmp_new);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin += k*k;
+				isquashed += (k*(k+1))/2;
+				curstate = 1;
+			} else if (cmdstr[i] == 'd') { /* diagonal */
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				int nskip = k*k-k; /* NOTE! Can be zero, if and only if k=1. */
+				if (nskip == 0) {
+					/* do nothing */
+					ihessin += 1;
+					isquashed+= 1;
+				} else {
+					len_hesscurr_new = len_hesscurr - nskip;
+					if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+						goto MEMFAIL;
+					hesschopnondiag_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &isquashed, &k);
+					free(hessouttmp);
+					hessouttmp   = hessouttmp_new;
+					len_hesscurr = len_hesscurr_new;
+					ihessin += k*k;
+					isquashed += k;
+				}
+				curstate = 1;
+			} else if (cmdstr[i] == 'e') { /* log-diagonal */
+				int len_hesscurr_new;
+				double *hessouttmp_new;
+				if (isNull(Rjacthis)) { RUPROTERR(("Log-diagonal 2nd-order chain rule required but Rjacthis is NULL")); }
+				if (!chked_jacthis) {
+					SEXP Rdim_jacthis;
+					if (TYPEOF(Rjacthis) != REALSXP)
+						RUPROTERR(("Log diagonal 2nd-order chain rule required but Rjacthis is NULL"));
+					Rdim_jacthis = getAttrib(Rjacthis, R_DimSymbol);
+					if (TYPEOF(Rdim_jacthis) != INTSXP || length(Rdim_jacthis) != 2)
+						RUPROTERR(("Rjacthis must be two-dimensional"));
+					if (TYPEOF(Rjthisoffset_c) != INTSXP || length(Rjthisoffset_c) != 1)
+						RUPROTERR(("Rjthisoffset_c is not an integer. Please as.integer() if called from R."));
+					if (TYPEOF(Rjthisoffset_r) != INTSXP || length(Rjthisoffset_r) != 1)
+						RUPROTERR(("Rjthisoffset_r is not an integer. Please as.integer() if called from R."));
+					jthisoffset_c = INTEGER(Rjthisoffset_c)[0];
+					jthisoffset_r = INTEGER(Rjthisoffset_r)[0];
+					ld_jacthis    = INTEGER(Rdim_jacthis)[0];
+					if (jthisoffset_r + len_rng > ld_jacthis || jthisoffset_r < 0)
+					        RUPROTERR(("Rjthisoffset_r is too big or negative"));
+					if (jthisoffset_c + k > (INTEGER(Rdim_jacthis)[1]) || jthisoffset_c < 0)
+					        RUPROTERR(("Rjthisoffset_c is too big or negative, or Rjacthis has too few columns."));
+					jacthis = REAL(Rjacthis);
+					chked_jacthis = 1;
+				}
+				len_hesscurr_new = len_hesscurr - k*k+k;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				hchnlndiag_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr,
+					    parin+isquashed, jacthis+ld_jacthis*jthisoffset_c, &ld_jacthis, &jthisoffset_r,
+					    &len_rng, &isquashed, &k);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin += k*k;
+				isquashed += k;
+				curstate = 1;
+			} else if (cmdstr[i] == '0') { /* zero out */
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				int nskip = k*(k+1)/2;
+				len_hesscurr_new = len_hesscurr - nskip;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				hesscpyskip_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &isquashed, &nskip);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin += k*k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'k') { /* keep the same */
+				ihessin += k*k;
+				isquashed+= k*k;
+				curstate = 1;
+			} else {
+				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
+			}
+			break;
+		case 3: /* Expects input argument for 'V'; */
+			if (cmdstr[i] == '0') { /* zero out */
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				int nskip = k*(k+1)/2;
+				len_hesscurr_new = len_hesscurr - nskip;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				hesscpyskip_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &isquashed, &nskip);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin += k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'k') { /* keep the same */
+				ihessin += k;
+				isquashed+= k;
+				curstate = 1;
+			} else {
+				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
+			}
+			break;
+		case 4: 	/* Expects input argument for 'L' */
+			if (cmdstr[i] == 'k') { /* keep the same */
+				ihessin  += (k*(k+1))/2;
+				isquashed+= (k*(k+1))/2;
+				curstate = 1;
+			} else {
+				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
+			}
+			break;
+		}
+		++i;
+	}
+	/* Add dim attributes to the output */
+	if (len_hesscurr != len_parin) {
+		UNPROTECT(1);
+		error("Input parameter length mismatches what the command string describes");
+	}
+	memcpy(hessout, hessouttmp, len_rng*len_parin*len_parin*sizeof(double));
+	Rdim_hessout = PROTECT(allocVector(INTSXP, 3));
+	dim_hessout = INTEGER(Rdim_hessout);
+	dim_hessout[0] = len_rng;
+	dim_hessout[1] = len_parin;
+	dim_hessout[2] = len_parin;
+	setAttrib(Rhessout, R_DimSymbol, Rdim_hessout);
+	UNPROTECT(2);
+	protdpth = -1;
+	return Rhessout;
+MEMFAIL:
+	RUPROTERR(("Failed to allocate memory"));
+	return R_NilValue;	/* Unreachable. */
+}
+
+
+static const R_CallMethodDef callMethods[]  = {
+  {"Rparamrestrict",    (DL_FUNC) &Rparamrestrict,    3},
+  {"Rpostjacrestrict",  (DL_FUNC) &Rpostjacrestrict,  4},
+  {"Rposthessrestrict", (DL_FUNC) &Rposthessrestrict, 9},
+  {"Rcurvifyhess",      (DL_FUNC) &Rcurvifyhess,      5},
+  {"Rchkusrhess",       (DL_FUNC) &Rchkusrhess,       7},
+  {"Rextractderivvec",  (DL_FUNC) &Rextractderivvec,  1},
+  {"Rdphylik",          (DL_FUNC) &Rdphylik,          4},
+  {"Rhphylik",          (DL_FUNC) &Rhphylik,          4},
+  {"Rhphylik_dir",      (DL_FUNC) &Rhphylik_dir,      5},
+  {"Rextracthessall",   (DL_FUNC) &Rextracthessall,   1},
+  {"Rndesc",            (DL_FUNC) &Rndesc,            1},
+  {"Rnparams",          (DL_FUNC) &Rnparams,          1},
+  {"Rxavail",           (DL_FUNC) &Rxavail,           1},
+  {"Rsettip",           (DL_FUNC) &Rsettip,           2},
+  {"Rvwphi_simul",      (DL_FUNC) &Rvwphi_simul,      6},
+  {"R_clone_tree",      (DL_FUNC) &R_clone_tree,      1},
+  {"Rnewnode",          (DL_FUNC) &Rnewnode,          3},
+  {"Rndphylik",         (DL_FUNC) &Rndphylik,         4},
+  {"Rvwphi_paradr",     (DL_FUNC) &Rvwphi_paradr,     1},
+  {"Rtagmiss",          (DL_FUNC) &Rtagmiss,          3},
+  {"Rtagreg",           (DL_FUNC) &Rtagreg,           3},
+  {NULL, NULL, 0}
+};
+void
+R_init_glinvci(DllInfo *info)
+{
+   R_registerRoutines(info, NULL, callMethods, NULL, NULL);
 }

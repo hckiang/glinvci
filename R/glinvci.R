@@ -21,10 +21,10 @@ NULL
 
 
 ndesc = function (x, ...) UseMethod('ndesc')
-ndesc.glinv_gauss = function (self) .Call('Rndesc', self$ctree)
+ndesc.glinv_gauss = function (self) .Call(Rndesc, self$ctree)
 
 nparams = function (x, ...) UseMethod('nparams')
-nparams.glinv_gauss = function (self) .Call('Rnparams', self$ctree)
+nparams.glinv_gauss = function (self) .Call(Rnparams, self$ctree)
 
 #' Check if a \code{glinv_gauss} model contains trait values at their tips.
 #'
@@ -38,7 +38,7 @@ has_tipvals = function (mod) UseMethod('has_tipvals')
 #' @rdname has_tipvals
 #' @method has_tipvals glinv_gauss
 #' @export
-has_tipvals.glinv_gauss = function (mod) .Call('Rxavail', mod$ctree)
+has_tipvals.glinv_gauss = function (mod) .Call(Rxavail, mod$ctree)
 
 
 #' Set trait values at the tip for a \code{glinv_gauss} model.
@@ -68,7 +68,7 @@ set_tips = function (mod, X) UseMethod('set_tips')
 #' @method set_tips glinv_gauss
 #' @export
 set_tips.glinv_gauss = function (mod, X)  {
-  .Call('Rsettip', mod$ctree, clean_x(X, mod$dimtab, mod$apetree))
+  .Call(Rsettip, mod$ctree, clean_x(X, mod$dimtab, mod$apetree))
   invisible()
 }
 
@@ -101,7 +101,7 @@ rglinv.glinv         = function (mod, par, Nsamp) {
 #' @rdname rglinv
 #' @export
 rglinv.glinv_gauss = function (mod, par, Nsamp)
-  .Call('Rvwphi_simul',
+  .Call(Rvwphi_simul,
         mod$ctree,
         as.integer(length(mod$apetree$tip.label)),
         as.integer(mod$dimtab),
@@ -109,7 +109,7 @@ rglinv.glinv_gauss = function (mod, par, Nsamp)
         as.integer(Nsamp),
         as.double(mod$x0))
 
-clone_topology = function (ctree) .Call('R_clone_tree', ctree)
+clone_topology = function (ctree) .Call(R_clone_tree, ctree)
 
 
 #' Construct an object representing a GLInv model with respect to the underlying Gaussian process parameters.
@@ -164,7 +164,7 @@ glinv_gauss = function (tree, x0, dimtab=NULL, X=NULL) {
   if (length(x0) != dimtab[tree$edge[1,1]])     stop("x0's dimension doesn't match dimtab's")
   mode(x0)     = 'double'
   mode(dimtab) = 'integer'
-  ctree = .Call('Rnewnode',
+  ctree = .Call(Rnewnode,
                 { ed = t(tree$edge); mode(ed) = 'integer'; ed },
                 clean_x(X, dimtab, tree),
                 dimtab)
@@ -247,10 +247,10 @@ lik.glinv_gauss = function (mod, par=NULL, ...) {
   if (is.null(par)) {
     mod
     function (par) {
-      .Call('Rndphylik', mod$ctree, par, mod$x0, mod$gaussdim)
+      .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
     }
   } else {
-    .Call('Rndphylik', mod$ctree, par, mod$x0, mod$gaussdim)
+    .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
   }
 }
 
@@ -283,8 +283,8 @@ grad.glinv_gauss = function (mod, par=NULL, lik=F, ...) {
 }
 
 grad_glinv_gauss_ = function (mod, par, lik=F, ...) {
-  l = .Call('Rdphylik', mod$ctree, par, mod$x0, mod$gaussdim)
-  g = c(.Call("Rextractderivvec", mod$ctree))
+  l = .Call(Rdphylik, mod$ctree, par, mod$x0, mod$gaussdim)
+  g = c(.Call(Rextractderivvec, mod$ctree))
   if (!lik) g
   else list(lik = l, grad = g)
 }
@@ -325,10 +325,10 @@ hess.glinv_gauss = function (mod, par=NULL, lik=F, grad=F, directions=NULL, ...)
 
 hess_glinv_gauss_ = function (mod, par, lik=F, grad=F, directions=NULL, ...) {
   if (is.null(directions)) {
-    l = .Call('Rhphylik', mod$ctree, par, mod$x0, mod$gaussdim)
-    h = .Call("Rextracthessall", mod$ctree)
+    l = .Call(Rhphylik, mod$ctree, par, mod$x0, mod$gaussdim)
+    h = .Call(Rextracthessall, mod$ctree)
   } else {
-    h = .Call('Rhphylik_dir', mod$ctree, par, mod$x0, mod$gaussdim, directions)
+    h = .Call(Rhphylik_dir, mod$ctree, par, mod$x0, mod$gaussdim, directions)
     l = attr(h, 'likelihood')
     attr(h, 'likelihood') = NULL
   }
@@ -336,7 +336,7 @@ hess_glinv_gauss_ = function (mod, par, lik=F, grad=F, directions=NULL, ...) {
   else {
     ans = list()
     if (lik)  ans[['lik']]  = l
-    if (grad) ans[['grad']] = c(.Call("Rextractderivvec", mod$ctree))
+    if (grad) ans[['grad']] = c(.Call(Rextractderivvec, mod$ctree))
     ans[['hess']]           = h
     ans
   }
@@ -539,17 +539,17 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
   rawmod     = glinv_gauss(tree, x0, dimtab, X = if (is.null(X)) NULL else tip_purge(X))
   regtags    = tag_regimes(modtpl, unlist(Map(function(x) x['start'], regimes)))
   parfntags  = tag_parfns(regtags, regimes)
-  parsegments= matrix(c(1,1+cumsum(pardims[-length(pardims)]),cumsum(pardims)),ncol=2)
+  parsegments= matrix(c(1L,1L+cumsum(pardims[-length(pardims)]),cumsum(pardims)),ncol=2)
   colnames(parsegments) = c('start','end')
-  gausssegments = .Call('Rvwphi_paradr', rawmod$ctree)
+  gausssegments = .Call(Rvwphi_paradr, rawmod$ctree)
   colnames(gausssegments) = c('start','end')
   obj    = list(rawmod        =rawmod,
                 regimes       =regimes,
                 regtags       =regtags,
                 misstags      =misstags,
                 dimtab        =dimtab,
-                nparams       =as.integer(sum(pardims)),
-                pardims       =as.integer(pardims),
+                nparams       =sum(pardims),
+                pardims       =pardims,
                 parfntags     =parfntags,
                 parfns        =parfns,
                 parjacs       =parjacs,
@@ -717,19 +717,20 @@ hess.glinv = function (mod,
                                              parent_id                  = pid,
                                              parfn_id                   = fid)
       in_regime_res = hessfn(par[pstart:pend], el, kp, kn)
-      .Call('Rchkusrhess', in_regime_res, mod$nparams, mod$pardims[fid],
+      .Call(Rchkusrhess, in_regime_res, mod$nparams, mod$pardims[fid],
             nid, pid, mod$dimtab[nid], mod$dimtab[pid])
       ## Hessfn is regime specific so we need to augment the hessians by zeros for other parameters.
-      lapply(in_regime_res, function (r) {
+      r = lapply(in_regime_res, function (r) {
         thisdim = c(dim(r))
         thisdim[c(2,3)] = mod$nparams
         fullarr = array(0., thisdim)
         fullarr[,pstart:pend, pstart:pend] = c(r)
         fullarr
       })
+      r
     }
     ## lin is directly modified in the C code after this.
-    .Call('Rcurvifyhess', lin, par, mod$rawmod$ctree, curvifier, environment())
+    .Call(Rcurvifyhess, lin, par, mod$rawmod$ctree, curvifier, environment())
     for (i in seq_along(mod$parhess))
       rm('INFO__', pos=environment(mod$parhess[[i]]))
     if (store_gaussian_hessian) {

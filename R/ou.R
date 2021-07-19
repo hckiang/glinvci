@@ -17,6 +17,9 @@ nparams_ou_symH  = function (k) k+2L*(k*(k+1L))%/%2L
 #' @rdname nparams_ou
 #' @export
 nparams_ou_spdH  = function (k) k+2L*(k*(k+1L))%/%2L
+#' @rdname nparams_ou
+#' @export
+nparams_brn  = function (k) (k*(k+1L))%/%2L
 
 ## ou_par2list = function (par) {
 ##   k     = sqrt(9+24*length(par))/6-1/2
@@ -49,10 +52,16 @@ nparams_ou_spdH  = function (k) k+2L*(k*(k+1L))%/%2L
 #' lower-triangular matrix, \eqn{W(t)} is the Brownian motion process.
 #' The parameters of this model is \eqn{(H,\theta,\Sigma_x)},
 #' therefore \eqn{k^2+k+k(k+1)/2} dimensional.
+#'
+#' This package uses parameterisation \eqn{(H,\theta,\Sigma_x')}, where
+#' \eqn{H} and \eqn{\theta} is the same as above defined, and \eqn{\Sigma_x'}
+#' is the lower-triangular part of \eqn{\Sigma_x}, except that, only on diagonal
+#' entries, \eqn{\Sigma_x'=log(\Sigma_x)}. The use of logarithm is for
+#' eliminating multiple local maxima in the log-likelihood.
 #' 
 #' The \code{par} arguemnt is the concatenation of major-column-flattened
 #' \eqn{H}, \eqn{\theta}, and the major-column-flattened lower-triangular part
-#' of \eqn{\Sigma_x}.
+#' of \eqn{\Sigma_x'}.
 #'
 #' @param par     A numeric vector containing the joint vector of the
 #'                Ornstein-Uhlenbeck drift matrix, long-term mean,
@@ -113,8 +122,8 @@ oupar = function (par, t, ...) {
   wsp = double(lwsp);    mode(wsp)     = 'double'
   zwsp = complex(lzwsp); mode(zwsp)    = 'complex'
   eigavail = 0;          mode(eigavail)= 'integer'
-  res = .C('d0geouvwphi_', H,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,info)
-  if (res[[17L]] != 0)    stop('Cannot eigen-decompose `H`')
+  res = .C('d0geouvwphi_', H,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,info, NAOK=T)
+  if (res[[17L]] != 0)   stop('Cannot eigen-decompose `H`')
   if (vecfmt)            return( unlist(res[c(8L,7L,6L)]) )
   else                   return( { R=res[c(8L,7L,6L)]; names(R)=c('Phi','w','V'); R } )
 }
@@ -155,7 +164,7 @@ oujac = function (par, t, ...) {
   wsp = double(lwsp);                     mode(wsp)     = 'double'
   eigavail = 0;                           mode(eigavail)= 'integer'
   jac   = matrix(0,k*k+k+(k*(k+1L))%/%2L,k*k+k+(k*(k+1L))%/%2L); mode(jac)   = 'double'
-  ougejacres = .C('ougejac_', t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,jac,info)
+  ougejacres = .C('ougejac_', t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,jac,info,  NAOK=T)
   if (ougejacres[[13]] != 0)   stop('Cannot eigen-decompose `H`')
   ougejacres[[12]]
 }
@@ -175,7 +184,7 @@ ouhess = function (par, t, ...) {
   mode(par) = 'double'
   mode(t)   = 'double'
   sig = .C('lnunchol_', as.double(par[((k*k)+k+1L):npar]), k,
-           double(k*k), k*k, matrix(0.,k,k), 0L)[[5]]
+           double(k*k), k*k, matrix(0.,k,k), 0L, NAOK=T)[[5]]
   eig = eigen(matrix(par[1L:(k*k)],k,k))
   P = as.complex(eig[['vectors']])
   invP = as.complex(solve(eig[['vectors']]))
@@ -187,7 +196,7 @@ ouhess = function (par, t, ...) {
            0L)
   if (res[[10]] != 0) stop('Error executing hphiha_()')
   hphiha = res[[7]]
-  list('V' = {
+  r = list('V' = {
     hv = array(0., c((k*(k+1L))%/%2L, npar, npar))
     hvhares = .C('hvha_', t, sig, par[1L:(k*k)],
              k, P, invP, Lambda,
@@ -202,7 +211,7 @@ ouhess = function (par, t, ...) {
               P,invP,Lambda, array(0., c((k*(k+1L))%/%2L,k*k,(k*(k+1L))%/%2L)),
               double(4L*(k*k)), 4L*(k*k),
               complex(k^4+k*k),as.integer(k^4)+k*k,
-              0L)
+              0L, NAOK=T)
     if (hvdadlres[[13]] != 0) stop('Error executing hvdadl_()')
     hv[1L:((k*(k+1L))%/%2L),(k*k+k+1L):npar,1L:(k*k)] =
         aperm(hv[1L:((k*(k+1L))%/%2L),1L:(k*k),(k*k+k+1L):npar] <- hvdadlres[[8]], c(1L,3L,2L))
@@ -211,7 +220,7 @@ ouhess = function (par, t, ...) {
            P, invP, Lambda,
            double(4L*k*k), 4L*k*k,
            complex(2L*k*k), 2L*k*k,
-           array(0.0, c((k*(k+1L))%/%2L,(k*(k+1L))%/%2L,(k*(k+1L))%/%2L)))[[11]]
+           array(0.0, c((k*(k+1L))%/%2L,(k*(k+1L))%/%2L,(k*(k+1L))%/%2L)), NAOK=T)[[11]]
     hv
   },
   'w' = {
@@ -235,6 +244,7 @@ ouhess = function (par, t, ...) {
     hphi[1L:(k*k),1L:(k*k),1L:(k*k)] = hphiha[,,]
     hphi
   })
+  r
 }
 
 #' Restrict the drift matrix of OU model.
@@ -246,7 +256,7 @@ ouhess = function (par, t, ...) {
 #' 
 #' In the simplest form, without any restriction or reparametrisation, the user typically
 #' needs to pass \code{oupar}, \code{oujac}, \code{ouhess}, all of which are simply
-#' functions which maps from the OU parameters \eqn{(H,\theta,\Sigma_x)} to the Gaussian
+#' functions which maps from the OU parameters \eqn{(H,\theta,\Sigma_x')} to the Gaussian
 #' paramters \eqn{(\Phi_i,w_i,V'_i)} for each node. For example:
 #' \preformatted{
 #'         mod.full = glinv(tree, x0, my_data,
@@ -271,7 +281,7 @@ ouhess = function (par, t, ...) {
 #' In the above call, ou_logdiagH(oupar) accepts the \code{oupar} function as argument
 #' and returns a new function. This new function behaves the same way as oupar itself,
 #' except that it expects its first argument (which is the model parameters) to be of
-#' lower dimension, only consisting of \eqn{(h,\theta,\Sigma_x)} where \eqn{h} is the
+#' lower dimension, only consisting of \eqn{(h,\theta,\Sigma_x')} where \eqn{h} is the
 #' diagonal vector of \eqn{H}. The following example should be illustrative:
 #' \preformatted{
 #'         f = ou_logdiagH(oupar)
@@ -288,14 +298,16 @@ ouhess = function (par, t, ...) {
 #' }
 #' 
 #' \subsection{Details about each pre-defined restrictions}{
-#' The following table summarises all the pre-defined \code{ou_*} functions.
+#' The following table summarises all the pre-defined \code{ou_*} functions. See \code{\link{oupar}}
+#' for precise meaning of the \eqn{(H,\theta,\Sigma_x')} mentioned below.
 #' \tabular{ll}{
 #'   \strong{R function}   \tab \strong{Restriction}\cr
-#'   \code{*_diagH}    \tab \eqn{(h,\theta,\Sigma_x)}, with \eqn{h=diag(H)}\cr
-#'   \code{*_logdiagH} \tab \eqn{(log(h),\theta,\Sigma_x)}, with \eqn{h=diag(H)}\cr
-#'   \code{*_symH}     \tab \eqn{(L,\theta,\Sigma_x)}, with \eqn{L} being lower-triangular part of H\cr
-#'   \code{*_spdH, log=F}  \tab \eqn{(L,\theta,\Sigma_x)}, with \eqn{L} being Cholesky factor of H\cr
-#'   \code{*_spdH, log=T}  \tab \eqn{(L',\theta,\Sigma_x)} where \eqn{L'} equals \eqn{L}, except that on the diagonals \eqn{L'_i} = \eqn{log L_i}
+#'   \code{*brn}           \tab \eqn{(0,0,\Sigma_x')}. The Brownian motion.\cr
+#'   \code{*_diagH}        \tab \eqn{(h,\theta,\Sigma_x')}, with \eqn{h=diag(H)}\cr
+#'   \code{*_logdiagH}     \tab \eqn{(log(h),\theta,\Sigma_x')}, with \eqn{h=diag(H)}\cr
+#'   \code{*_symH}         \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being lower-triangular part of H\cr
+#'   \code{*_spdH, log=F}  \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being Cholesky factor of H\cr
+#'   \code{*_spdH, log=T}  \tab \eqn{(L',\theta,\Sigma_x')} where \eqn{L'} equals \eqn{L}, except that on the diagonals \eqn{L'_i} = \eqn{log L_i}
 #' }
 #' By Cholesky factor, we mean the only the non-zero part of the lower-triangular Cholesky factor.
 #' }
@@ -313,7 +325,7 @@ ouhess = function (par, t, ...) {
 #'                named \code{Phi}, \code{w}, \code{V} respectively inside the list. \code{((hessfn)(...))$Phi[m,i,j]}
 #'                contains the cross second-order partial derivative of \eqn{\Phi_m} (here we treat the matrix
 #'                \eqn{\Phi} as a column-major-flattened vector) with respect to the \eqn{i}-th and\eqn{j}-th parameters
-#'                in the joint \eqn{(H,\theta,\Sigma_x)} vector, and
+#'                in the joint \eqn{(H,\theta,\Sigma_x')} vector, and
 #'                \code{((hessfn)(...))$w[m,i,j]} and \code{((hessfn)(...))$V[m,i,j]}
 #'                analogously contains second-order derivative with respect to \eqn{w_m} and \eqn{V'_m}.
 #' @param log     Whether or not some elements of the parameters should be passed to
@@ -329,8 +341,9 @@ ouhess = function (par, t, ...) {
 ou_diagH = function (parfn) {
   parfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    parfn(c(if (k==1L) par[1L] else diag(par[1L:k]),par[(k+1L):length(par)]), ...)
+    parfn(.Call(Rparamrestrict, 'MdVkLk', par, k), ...)
   }
 }
 
@@ -339,9 +352,10 @@ ou_diagH = function (parfn) {
 dou_diagH = function (jacfn) {
   jacfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    J = jacfn(c(if(k==1L) par[1L] else diag(par[1L:k]),par[(k+1L):length(par)]), ...)
-    J[,c((1L:k)+((1L:k)-1L)*k, (k*k+1L):ncol(J)),drop=F]
+    J = jacfn(.Call(Rparamrestrict, 'MdVkLk', par, k), ...)
+    .Call(Rpostjacrestrict, 'MdVkLk', par, J, k)
   }
 }
 
@@ -350,13 +364,12 @@ dou_diagH = function (jacfn) {
 hou_diagH = function (hessfn) {
   hessfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    res = hessfn(c(if(k==1L) par[1L] else diag(par[1L:k]),par[(k+1L):length(par)]), ...)
-    wh = c((1L:k)+((1L:k)-1L)*k, (k*k+1L):(dim(res[['V']])[2]))
-    res[['V']]   = res[['V']][,wh,wh,drop=F]
-    res[['w']]   = res[['w']][,wh,wh,drop=F]
-    res[['Phi']] = res[['Phi']][,wh,wh,drop=F]
-    res
+    H = hessfn(.Call(Rparamrestrict, 'MdVkLk', par, k), ...)
+    list(V   = .Call(Rposthessrestrict, 'MdVkLk', par, H[['V']],   k, NULL, NULL, NULL, NULL, NULL),
+         w   = .Call(Rposthessrestrict, 'MdVkLk', par, H[['w']],   k, NULL, NULL, NULL, NULL, NULL),
+         Phi = .Call(Rposthessrestrict, 'MdVkLk', par, H[['Phi']], k, NULL, NULL, NULL, NULL, NULL))
   }
 }
 
@@ -373,8 +386,9 @@ hou_diagH = function (hessfn) {
 ou_logdiagH = function (parfn) {
   parfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    parfn(c(if (k==1L) exp(par[1L:k]) else diag(exp(par[1L:k])),par[(k+1L):length(par)]), ...)
+    parfn(.Call(Rparamrestrict, 'MeVkLk', par, k), ...)
   }
 }
 
@@ -383,11 +397,10 @@ ou_logdiagH = function (parfn) {
 dou_logdiagH = function (jacfn) {
   jacfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    J = jacfn(c(if(k==1L) exp(par[1L:k]) else diag(exp(par[1L:k])),par[(k+1L):length(par)]), ...)
-    J = J[,c((1L:k)+((1L:k)-1L)*k, (k*k+1L):ncol(J)),drop=F]
-    J[,1L:k] = sweep(J[,1L:k,drop=F], MARGIN=2, exp(par[1L:k]), `*`)
-    J
+    r = .Call(Rpostjacrestrict, 'MeVkLk', par, jacfn(.Call(Rparamrestrict, 'MeVkLk', par, k), ...), k)
+    r
   }
 }
 
@@ -397,32 +410,17 @@ hou_logdiagH = function (hessfn) {
   hessfn
   function (par, ...) {
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    eh = exp(par[1L:k])
-    npar_orig = k*k+k+(k*(k+1L))%/%2L
-    res = hessfn(c(if (k==1L) eh else diag(eh),par[(k+1L):length(par)]), ...)
-    wh = c((1L:k)+((1L:k)-1L)*k, (k*k+1L):npar_orig)
-    res[['V']]   = res[['V']][,wh,wh,drop=F]
-    res[['w']]   = res[['w']][,wh,wh,drop=F]
-    res[['Phi']] = res[['Phi']][,wh,wh,drop=F]
+    par_orig = .Call(Rparamrestrict, 'MeVkLk', par, k)
+    H = hessfn(par_orig, ...)
+    Jthis = INFO__[['reparametrisation_jacobian']]
     gstart = INFO__$mod$gausssegments[INFO__$node_id,'start']
     gend   = INFO__$mod$gausssegments[INFO__$node_id,'end']
     pstart = INFO__$mod$parsegments[INFO__$parfn_id,'start']
-    pend   = INFO__$mod$parsegments[INFO__$parfn_id,'end']
-    res[['V']][,1L:k,]   = .Call('Reinsumijk_j_2_ijk',res[['V']][,1L:k,,drop=F],  eh)
-    res[['w']][,1L:k,]   = .Call('Reinsumijk_j_2_ijk',res[['w']][,1L:k,,drop=F],  eh)
-    res[['Phi']][,1L:k,] = .Call('Reinsumijk_j_2_ijk',res[['Phi']][,1L:k,,drop=F],eh)
-    res[['V']][,,1L:k]   = .Call('Reinsumijk_k_2_ijk',res[['V']][,,1L:k,drop=F],  eh)
-    res[['w']][,,1L:k]   = .Call('Reinsumijk_k_2_ijk',res[['w']][,,1L:k,drop=F],  eh)
-    res[['Phi']][,,1L:k] = .Call('Reinsumijk_k_2_ijk',res[['Phi']][,,1L:k,drop=F],eh)
-    repa = INFO__[['reparametrisation_jacobian']]
-    phid = dim(res[['Phi']])[1]
-    wd   = dim(res[['w']])[1]
-    for (i in seq_len(k)) {
-      res[['V']][,i,i] = res[['V']][,i,i]     + repa[(gstart+phid+wd):gend, pstart+i-1L,drop=F]
-      res[['w']][,i,i] = res[['w']][,i,i]     + repa[(gstart+phid):(gstart+phid+wd-1L),pstart+i-1L,drop=F]
-      res[['Phi']][,i,i] = res[['Phi']][,i,i] + repa[gstart:(gstart+phid-1L),pstart+i-1L,drop=F]
-    }
-    res
+    phid = dim(H[['Phi']])[1]
+    wd   = dim(H[['w']])[1]
+    list(V   = .Call(Rposthessrestrict, 'MeVkLk', par, H[['V']],   k, NULL, NULL, Jthis, gstart+phid+wd-1L, pstart-1L),
+         w   = .Call(Rposthessrestrict, 'MeVkLk', par, H[['w']],   k, NULL, NULL, Jthis, gstart+phid-1L,    pstart-1L),
+         Phi = .Call(Rposthessrestrict, 'MeVkLk', par, H[['Phi']], k, NULL, NULL, Jthis, gstart-1L,         pstart-1L))
   }
 }
 
@@ -437,9 +435,8 @@ hou_logdiagH = function (hessfn) {
 ou_symH = function (parfn) {
   parfn
   function (par, ...) {
-    k = as.integer(sqrt(4+4*length(par))/2)-1L
-    M = .Call('Rsylgecpy', as.double(par[1L:((k*(k+1L))%/%2L)]), k)
-    parfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
+    mode(par) = 'double'
+    parfn(.Call(Rparamrestrict, 'MsVkLk', par, as.integer(sqrt(4+4*length(par))/2)-1L), ...)
   }
 }
 
@@ -448,21 +445,10 @@ ou_symH = function (parfn) {
 dou_symH = function (jacfn) {
   jacfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(4+4*length(par))/2)-1L
-    M = .Call('Rsylgecpy', par[1L:(((k*(k+1L))%/%2L))], k)
-    J = jacfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
-    dimJ = dim(J)
-    k2half = (k*(k+1L))%/%2L
-    res = matrix(0., dimJ[1], k2half + (dimJ[2] - k*k))
-    dH = matrix(0., k,k)
-    dH_lowt_mask = lower.tri(dH,diag=T)
-    for (i in seq_len(nrow(res))) {
-      dH[,] = J[i,1L:(k*k)]
-      dH[,] = dH+t(dH) - if (k==1L) dH else diag(diag(dH))
-      res[i,1L:k2half] = dH[dH_lowt_mask]
-      res[i,(k2half+1L):ncol(res)] = J[i,((k*k)+1L):dimJ[2]]
-    }
-    res
+    .Call(Rpostjacrestrict, 'MsVkLk', par,
+          jacfn(.Call(Rparamrestrict, 'MsVkLk', par, k), ...), k)
   }
 }
 
@@ -471,13 +457,12 @@ dou_symH = function (jacfn) {
 hou_symH = function (hessfn) {
   hessfn
   function (par, ...) {
+    mode(par) = 'double'
     k = as.integer(sqrt(4+4*length(par))/2)-1L
-    M = .Call('Rsylgecpy', par[1L:(((k*(k+1L))%/%2L))], k)
-    res = hessfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
-    res[['V']]   = .Call('Rhouchnsymh', res[['V']], k)
-    res[['w']]   = .Call('Rhouchnsymh', res[['w']], k)
-    res[['Phi']] = .Call('Rhouchnsymh', res[['Phi']], k)
-    res
+    H = hessfn(.Call(Rparamrestrict,    'MsVkLk', par, k), ...)
+    list(V   = .Call(Rposthessrestrict, 'MsVkLk', par, H[['V']], k, NULL, NULL, NULL, NULL, NULL),
+         w   = .Call(Rposthessrestrict, 'MsVkLk', par, H[['w']], k, NULL, NULL, NULL, NULL, NULL),
+         Phi = .Call(Rposthessrestrict, 'MsVkLk', par, H[['Phi']], k, NULL, NULL, NULL, NULL, NULL))
   }
 }
 
@@ -495,14 +480,10 @@ hou_symH = function (hessfn) {
 #' @export
 ou_spdH = function (parfn, log=T) {
   parfn
-  if (log) function (par, ...) {
-    k = as.integer(sqrt(4+4*length(par))/2)-1L
-    M = .Call('Rlnunchol', as.double(par[1L:(((k*(k+1L))%/%2L))]), k)
-    parfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
-  } else function (par, ...) {
-    k = as.integer(sqrt(4+4*length(par)))%/%2L-1L
-    M = .Call('Runchol', as.double(par[1L:(((k*(k+1L))%/%2L))]), k)
-    parfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
+  s = if (log) 'MlVkLk' else 'McVkLk'
+  function (par, ...) {
+    mode(par) = 'double'
+    parfn(.Call(Rparamrestrict, s, par, as.integer(sqrt(4+4*length(par))/2)-1L), ...)
   }
 }
 
@@ -511,21 +492,12 @@ ou_spdH = function (parfn, log=T) {
 #' @export
 dou_spdH = function (jacfn, log=T) {
   jacfn
-  if (log) function (par, ...) {
-    k = as.integer(sqrt(4L+4L*length(par))/2)-1L
+  s = if (log) 'MlVkLk' else 'McVkLk'
+  function (par, ...) {
     mode(par) = 'double'
-    M = .Call('Rlnunchol', par[1L:(((k*(k+1L))%/%2L))], k)
-    J = jacfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
-    mode(J) = 'double'
-    DL = .Call('Rlnchnunchol', J, par[1L:(((k*(k+1L))%/%2L))], nrow(J), k)
-    cbind(DL, J[,((k*k)+1L):ncol(J),drop=F])
-  } else function (par, ...) {
-    k = as.integer(sqrt(4+4*length(par))/2)-1L
-    M = .Call('Runchol', as.double(par[1L:(((k*(k+1L))%/%2L))]), k)
-    J = jacfn(c(M,par[((k*(k+1L))%/%2L+1L):length(par)]), ...)
-    mode(J) = mode(par) = 'double'
-    DL = .Call('Rchnunchol', J, par[1L:(((k*(k+1L))%/%2L))], nrow(J), k)
-    cbind(DL, J[,(k*k+1L):ncol(J),drop=F])
+    k = as.integer(sqrt(4L+4L*length(par))/2)-1L
+    J = jacfn(.Call(Rparamrestrict, s, par, k), ...)
+    .Call(Rpostjacrestrict, s, par, J, k)
   }
 }
 
@@ -538,33 +510,65 @@ hou_spdH = function (hessfn, jacfn, log=T) {
   if (log) function (par, ...) {
     k = as.integer(sqrt(4L+4L*length(par))/2)-1L
     mode(par) = 'double'
-    k2half = ((k*(k+1L))%/%2L)
-    npar_orig = k*k+k+k2half
-    par_orig = double(k*k+k+k2half)
-    par_orig[1:(k*k)] = .Call('Rlnunchol', par[1L:k2half], k)
-    par_orig[(k*k+1):(k*k+k+k2half)] = par[(k2half+1L):length(par)]
-    res_orig  = hessfn(par_orig, ...)
+    par_orig = .Call(Rparamrestrict, 'MlVkLk', par, k)
+    H = hessfn(par_orig, ...)
     J = jacfn(par_orig, ...)
     ku = INFO__$mod$rawmod$dimtab[INFO__$node_id]
     kv = INFO__$mod$rawmod$dimtab[INFO__$parent_id]
-    list(V   = .Call('Rhoulnspdh', res_orig[['V']],   k, par, J, ku*kv+ku),
-         w   = .Call('Rhoulnspdh', res_orig[['w']],   k, par, J, ku*kv),
-         Phi = .Call('Rhoulnspdh', res_orig[['Phi']], k, par, J, 0L))
+    list(V   = .Call(Rposthessrestrict, 'MlVkLk', par, H[['V']],   k,  J, ku*kv+ku, NULL, NULL, NULL),
+         w   = .Call(Rposthessrestrict, 'MlVkLk', par, H[['w']],   k,  J, ku*kv   , NULL, NULL, NULL),
+         Phi = .Call(Rposthessrestrict, 'MlVkLk', par, H[['Phi']], k,  J, 0L      , NULL, NULL, NULL))
   } else function (par, ...) {
     k = as.integer(sqrt(4L+4L*length(par))/2)-1L
     mode(par) = 'double'
-    k2half = ((k*(k+1L))%/%2L)
-    npar_orig = k*k+k+k2half
-    par_orig = double(k*k+k+k2half)
-    par_orig[1:(k*k)] = .Call('Runchol', par[1L:k2half], k)
-    par_orig[(k*k+1):(k*k+k+k2half)] = par[(k2half+1L):length(par)]
-    res_orig  = hessfn(par_orig, ...)
+    par_orig = .Call(Rparamrestrict, 'McVkLk', par, k)
+    H  = hessfn(par_orig, ...)
     J = jacfn(par_orig, ...)
     ku = INFO__$mod$rawmod$dimtab[INFO__$node_id]
     kv = INFO__$mod$rawmod$dimtab[INFO__$parent_id]
-    list(V   = .Call('Rhouspdh', res_orig[['V']],   k, par, J, ku*kv+ku),
-         w   = .Call('Rhouspdh', res_orig[['w']],   k, par, J, ku*kv),
-         Phi = .Call('Rhouspdh', res_orig[['Phi']], k, par, J, 0L))
+    list(V   = .Call(Rposthessrestrict, 'McVkLk', par, H[['V']],   k,  J, ku*kv+ku, NULL, NULL, NULL),
+         w   = .Call(Rposthessrestrict, 'McVkLk', par, H[['w']],   k,  J, ku*kv   , NULL, NULL, NULL),
+         Phi = .Call(Rposthessrestrict, 'McVkLk', par, H[['Phi']], k,  J, 0L      , NULL, NULL, NULL))
   }
 }
 
+
+#' Restrict an OU model into brownian motion.
+#'
+#' \code{brn} is a restricts the OU model into a brownian motion model.
+#' 
+#' @rdname ou_diagH
+#' @export
+brn = function (parfn) {
+  parfn
+  function (par, ...) {
+    mode(par) = 'double'
+    parfn(.Call(Rparamrestrict, 'M0V0Lk', par, as.integer((sqrt(8*length(par)+1)-1)/2)), ...)
+  }
+}
+
+#' @rdname ou_diagH
+#' @export
+dbrn = function (jacfn) {
+  jacfn
+  function (par, ...) {
+    mode(par) = 'double'
+    k = as.integer((sqrt(8*length(par)+1)-1)/2)
+    J = jacfn(.Call(Rparamrestrict, 'M0V0Lk', par, k), ...)
+    .Call(Rpostjacrestrict, 'M0V0Lk', par, J, k)
+  }
+}
+
+#' @rdname ou_diagH
+#' @export
+hbrn = function (hessfn) {
+  hessfn
+  function (par, ...) {
+    mode(par) = 'double'
+    k = as.integer((sqrt(8*length(par)+1)-1)/2)
+    H = hessfn(.Call(Rparamrestrict, 'M0V0Lk', par, k), ...)
+    list(V   = .Call(Rposthessrestrict, 'M0V0Lk', par, H[['V']],   k, NULL, NULL, NULL, NULL, NULL),
+         w   = .Call(Rposthessrestrict, 'M0V0Lk', par, H[['w']],   k, NULL, NULL, NULL, NULL, NULL),
+         Phi = .Call(Rposthessrestrict, 'M0V0Lk', par, H[['Phi']], k, NULL, NULL, NULL, NULL, NULL))
+  }
+}

@@ -1,9 +1,13 @@
+! Even if nothing in this file will be called from OpenMP parallel regions
+! we still add recursive to everything guard against compiler-related bugs,
+! especially compiling using lesser-used of C & Fortran compilers and
+! compiler combinations...
 module oumods
   use, intrinsic :: iso_c_binding
   implicit integer(c_int) (i-k), integer(c_int) (m,n), &
        & real(c_double) (a-h), real(c_double) (l), real(c_double) (o-z)
 contains
-  function mod2small(z)
+  recursive function mod2small(z)
     integer(c_int)    :: mod2small
     complex(c_double_complex) :: z
     if (abs(dble(real(z))) < 0.000001_c_double .and. abs(dble(aimag(z))) < 0.000001_c_double) then
@@ -13,7 +17,7 @@ contains
     end if
   end function
 
-  subroutine zI0(t,c,alpha,beta,r)
+  recursive subroutine zI0(t,c,alpha,beta,r)
     complex(c_double_complex) c,r,    x,z
     if (mod2small(c) == 1) then
        r = beta*r+alpha* cmplx(t,0.0_c_double,c_double_complex)
@@ -26,7 +30,7 @@ contains
     end if
   end subroutine
   
-  subroutine zI1(t,c,alpha,beta,r) bind(C, name='zI1_')
+  recursive subroutine zI1(t,c,alpha,beta,r) bind(C, name='zI1_')
     complex(c_double_complex) c,r,    x,y,z
     if (mod2small(c) == 1) then
        r = beta*r+alpha*cmplx((t**2.0_c_double)/2.0_c_double,0.0_c_double,kind(1._c_double))
@@ -40,7 +44,7 @@ contains
     end if
   end subroutine
 
-  subroutine zI2(t,c,alpha,beta,r)
+  recursive subroutine zI2(t,c,alpha,beta,r)
     complex(c_double_complex) c, r,   x,y,z
     if (mod2small(c) == 1) then
        r = beta * r + alpha * ((t**3.0_c_double) / 3.0_c_double)
@@ -55,7 +59,7 @@ contains
   
   ! Convert cholesky decomposition to the original matrix
   ! wsp at least k^2
-  subroutine dunchol(sig_x,k,wsp,lwsp,sig,info) bind(C,name="unchol_")
+  recursive subroutine dunchol(sig_x,k,wsp,lwsp,sig,info) bind(C,name="unchol_")
     integer(c_int) :: lwsp, k, info
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
@@ -72,7 +76,7 @@ contains
 
   ! Same as dunchol but the diagonals of sig_x is now parameterised by the logarithm.
   ! wsp at least k^2
-  subroutine dlnunchol(sig_x,k,wsp,lwsp,sig,info) bind(C,name="lnunchol_")
+  recursive subroutine dlnunchol(sig_x,k,wsp,lwsp,sig,info) bind(C,name="lnunchol_")
     integer(c_int) :: lwsp, k, info
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
@@ -92,7 +96,7 @@ contains
 
   ! For A = PLP^{-1}, output P, Lambda, and P^{-1} if A is diagonalisable. Otherwise output
   ! info /= 0 with the content of P, Lambda and invP undefined on exit.
-  subroutine zeiginv(A,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="zeiginv_")
+  recursive subroutine zeiginv(A,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="zeiginv_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) k,lwsp,lzwsp,info,ipiv(k)
     dimension A(k,k), zwsp(lzwsp), wsp(lwsp), P(k,k), invP(k,k), Lambda(k), LR(k),LI(k)
@@ -142,7 +146,7 @@ contains
 
 
   ! Compute exp(-H * t) using eigen decomposition PLP^-1 of H
-  subroutine d0phi (t, k, P, invP, Lambda, Phi, zwsp) bind(C, name="d0phi_")
+  recursive subroutine d0phi (t, k, P, invP, Lambda, Phi, zwsp) bind(C, name="d0phi_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     dimension P(k,k), invP(k,k), Lambda(k), Phi(k,k), zwsp(k**2)
     target zwsp
@@ -153,6 +157,7 @@ contains
     enddo
     Phi = real(matmul(zout, invP))
   end subroutine
+
   ! A, theta and sig_x is our input, V,w,Phi is output, V's initial value is summed into result.
   ! A:     a kxk matrix.
   ! Sig_x: a LOWER TRIANGULAR BLAS-PACKED FORMAT (PCMBase USES UPPER!)
@@ -168,7 +173,7 @@ contains
   ! lzwsp: at least 8*k*k
   ! eigavail: 0 or 1. If one, P, invP are recomputed and output. Otherwise they
   !           are read and untouched.
-  subroutine d0geouvwphi(A,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,&
+  recursive subroutine d0geouvwphi(A,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,&
                        & zwsp,lzwsp,eigavail,info) bind(C, name="d0geouvwphi_")
     complex(c_double_complex) P, invP, Lambda
     integer(c_int) :: info, k, eigavail, lwsp, lzwsp
@@ -202,7 +207,7 @@ contains
 
   ! Copy the real part of the complex symmetric matrix stored in `zA` in standard form
   ! into `rAP` stored in packed form.
-  subroutine z2dtrttp(uplo,k,zA,rAP,wsp)
+  recursive subroutine z2dtrttp(uplo,k,zA,rAP,wsp)
     complex(c_double_complex) zA
     integer(c_int) lda
     character uplo
@@ -213,7 +218,7 @@ contains
   end subroutine
 
   ! zwsp at least 2*k**2, wsp at least k**2. Output stored at wsp.
-  subroutine ouv(t,k,sig,P,invP,Lambda,V,zwsp,lzwsp,wsp,lwsp) bind(C, name="ouv_")
+  recursive subroutine ouv(t,k,sig,P,invP,Lambda,V,zwsp,lzwsp,wsp,lwsp) bind(C, name="ouv_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) lzwsp,lwsp
     dimension sig(k,k), P(k,k), invP(k,k), Lambda(k), V((k*(k+1))/2), zwsp(lzwsp), wsp(lwsp)
@@ -232,7 +237,7 @@ contains
   end subroutine
 
   ! Given a Jacobian in a basis defined by P, return the Jacobian in standard basis
-  subroutine chgbasis(D,P,invP,k,zwsp,out)
+  recursive subroutine chgbasis(D,P,invP,k,zwsp,out)
     complex(c_double_complex) P, invP, zwsp, D
     dimension D(k**2,k**2), P(k,k), invP(k,k), zwsp(k**2), out(k**2,k**2)
     external zgeru
@@ -266,7 +271,7 @@ contains
   end subroutine
 
   ! lzwsp at least 2*k^2. 
-  subroutine realhesschgbasis(X,P,invP,m,k,zwsp,lzwsp,out) bind(C, name='realhesschgbasis_')
+  recursive subroutine realhesschgbasis(X,P,invP,m,k,zwsp,lzwsp,out) bind(C, name='realhesschgbasis_')
     complex(c_double_complex) X, P, invP, zwsp, d
     integer(c_int) :: lzwsp, a1, a2, b1, b2, w1, w2, xi1, xi2, j, m, k
     dimension X(m,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out(m,k**2,k**2)
@@ -330,7 +335,7 @@ contains
   ! Same as realhesschgbasis, except that in this function we assume both out(j,:,:) being
   ! a symmetric matrix for each j, and out(:,a,b) is symmetric itself. In the return, out(:,a,b)
   ! is in packed format but out(:,a,b) isn't packed.
-  subroutine dprealsymhesschgbasis(X,P,invP,sqrtm,k,zwsp,lzwsp,out) bind(C, name='dprealsymhesschgbasis_')
+  recursive subroutine dprealsymhesschgbasis(X,P,invP,sqrtm,k,zwsp,lzwsp,out) bind(C, name='dprealsymhesschgbasis_')
     complex(c_double_complex) X, P, invP, zwsp, d
     integer(c_int) :: sqrtm, lzwsp, a1, a2, b1, b2, w1, w2, xi1, xi2, i,j,k,c
     dimension X(sqrtm**2,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out((sqrtm*(sqrtm+1))/2,k**2,k**2)
@@ -400,7 +405,7 @@ contains
 
   ! Same as realhesschgbasis, except that in this function we don't assume the out(j,:,:) being
   ! a symmetric matrix for each j.
-  subroutine realdblasymchgbasis(X,P,invP,m,k,zwsp,lzwsp,out) bind(C, name='realdblasymchgbasis_')
+  recursive subroutine realdblasymchgbasis(X,P,invP,m,k,zwsp,lzwsp,out) bind(C, name='realdblasymchgbasis_')
     complex(c_double_complex) X, P, invP, zwsp, d
     integer(c_int) :: lzwsp, a1, a2, b1, b2, w1, w2, xi1, xi2, j, m, k
     dimension X(m,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out(m,k**2,k**2)
@@ -491,7 +496,7 @@ contains
   end subroutine
 
   !! TODO: move PsiB into zwsp for safety. wsp at least 2*(k^2); zwsp at least (k^4+k^2)
-  subroutine dvda(t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="dvda_")
+  recursive subroutine dvda(t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="dvda_")
     integer(c_int) lwsp,lzwsp,eigavail
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), out(((k*(k+1))/2),k**2), PsiB(k,k)
@@ -532,7 +537,7 @@ contains
     info = 0
   end subroutine
 
-  subroutine dvdsigx(t,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="dvdsigx_")
+  recursive subroutine dvdsigx(t,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="dvdsigx_")
     integer(c_int) lwsp,lzwsp
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension sig_x((k*(k+1))/2),P(k,k),invP(k,k),Lambda(k),out((k*(k+1))/2,(k*(k+1))/2),zwsp(lzwsp),wsp(lwsp)
@@ -542,6 +547,16 @@ contains
     UijLt(1:k,1:k)      => wsp(1:)
     sig_x_unpk(1:k,1:k) => wsp((k**2+1):)
     sig_x_unpk = 0.0_c_double
+    !
+    ! COMPILER BUG IN OPEN64-C + GFORTRAN!! If I print out sig_x everything works.
+    ! If I don't then NaN pops up out of nowhere. I don't even know where the NaN
+    ! came from because I simply printing it out solves the problem... This is not
+    ! a dtpttr blas problem because even if I implement my own dtpttr the problem
+    ! is the same. I suspect something is wrong with their implementation of bind(C)?
+    ! Or Fortran safe flags?? But if I use gfortran with gcc then everything is fine.
+    !
+    !    print *, sig_x
+    !
     call dtpttr('L',k,sig_x,sig_x_unpk,k,info)
     do i=1,k
        sig_x_unpk(i,i) = exp(sig_x_unpk(i,i))
@@ -564,7 +579,7 @@ contains
   end subroutine
 
   ! TODO: fix zwsp.
-  subroutine dwdtheta(t,k,P,invP,Lambda,out,wsp,lwsp) bind(C, name="dwdtheta_")
+  recursive subroutine dwdtheta(t,k,P,invP,Lambda,out,wsp,lwsp) bind(C, name="dwdtheta_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) lwsp
     dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), ipiv(k), zwsp(k**2)
@@ -583,7 +598,7 @@ contains
   end subroutine
 
   ! zwsp at least k^4+k^2+2
-  subroutine dphida(t,k,P,invP,Lambda,out,zwsp,lzwsp) bind(C, name="dphida_")
+  recursive subroutine dphida(t,k,P,invP,Lambda,out,zwsp,lzwsp) bind(C, name="dphida_")
     integer(c_int) k, lzwsp
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension P(k,k), invP(k,k), Lambda(k), zwsp(lzwsp), out(k**2,k**2)
@@ -611,7 +626,7 @@ contains
     call chgbasis(D,P,invP,k,zwsp(k**4+3),out)
   end subroutine
 
-  subroutine dwda(k,dphidaout,theta,out) bind(C,name="dwda_")
+  recursive subroutine dwda(k,dphidaout,theta,out) bind(C,name="dwda_")
     dimension dphidaout(k**2,k**2), theta(k), out(k,k**2)
     external dgemv
     do m=1,k**2
@@ -620,7 +635,7 @@ contains
   end subroutine
 
   ! Make function for calculating the simple OU jacobian.
-  subroutine ougejac(t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,djac,info) bind(C,name="ougejac_")
+  recursive subroutine ougejac(t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,djac,info) bind(C,name="ougejac_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) lwsp,lzwsp,eigavail
     dimension hts(k**2+k+(k*(k+1))/2), P(k,k), invP(k,k), &
@@ -681,7 +696,7 @@ contains
     enddo
   end subroutine
 
-  subroutine dchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dchnunchol_")
+  recursive subroutine dchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dchnunchol_")
     dimension DFDH(m,k**2), L((k*(k+1))/2), DFDL(m,(k*(k+1))/2)
     n=1
     do j=1,k
@@ -694,7 +709,7 @@ contains
     enddo
   end subroutine
   
-  subroutine dlnchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dlnchnunchol_")
+  recursive subroutine dlnchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dlnchnunchol_")
     dimension DFDH(m,k**2), L((k*(k+1))/2), DFDL(m,(k*(k+1))/2)
     n=1
     do j=1,k
@@ -765,7 +780,7 @@ contains
     endif
   end subroutine
 
-  subroutine zK0 (t, za, zb, alpha, beta, out)    bind(C, name="zK0_")
+  recursive subroutine zK0 (t, za, zb, alpha, beta, out)    bind(C, name="zK0_")
     complex(c_double_complex) za, zb, out, tmp
     tmp = cmplx(0._c_double,0._c_double,kind(1._c_double))
     if (mod2small(zb) == 1) then
@@ -777,7 +792,7 @@ contains
     endif
   end subroutine
 
-  subroutine zK1 (t, za, zb, alpha, beta, out)    bind(C, name="zK1_")
+  recursive subroutine zK1 (t, za, zb, alpha, beta, out)    bind(C, name="zK1_")
     complex(c_double_complex) za, zb, out, tmp
     tmp = cmplx(0._c_double,0._c_double,kind(1._c_double))
     if (mod2small(zb) == 1) then
@@ -792,7 +807,7 @@ contains
   end subroutine
 
   ! wsp at least 2*(k**2), zwsp at least (2*(k**2)+3*k)
-  subroutine hvhadir (t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="hvhadir_")
+  recursive subroutine hvhadir (t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="hvhadir_")
     integer(c_int) lwsp,lzwsp,eigavail
     complex(c_double_complex) P,invP,Lambda,zwsp,out,    d
     dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), &
@@ -865,8 +880,24 @@ contains
     info = 0
   end subroutine
 
+  recursive subroutine mydtpttr (X, out, k)
+    dimension X((k*(k+1))/2), out(1:k,1:k)
+    do j=1,k
+       do i=1,k
+          out(i,j) = 0.
+       enddo
+    enddo
+    n=1
+    do j=1,k
+       do i=j,k
+          out(i,j) = X(n)
+          n=n+1
+       enddo
+    enddo
+  end subroutine
+
   ! wsp at least 2*(k**2), zwsp at least k^6 + 4*(k**2)+3*k
-  subroutine hvha (t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="hvha_")
+  recursive subroutine hvha (t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="hvha_")
     integer(c_int) lwsp,lzwsp,eigavail
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), &
@@ -880,7 +911,7 @@ contains
   end subroutine
 
   ! wsp at least 4*(k^2), lzwsp at least k^4 + k^2
-  subroutine hvdadl (t,H,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name='hvdadl_')
+  recursive subroutine hvdadl (t,H,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name='hvdadl_')
     integer(c_int) lwsp, lzwsp, eigavail
     complex(c_double_complex) P, invP, Lambda, zwsp
     dimension sig_x((k*(k+1))/2), H(k,k), P(k,k), invP(k,k), Lambda(k), out((k*(k+1))/2,k**2,(k*(k+1))/2),&
@@ -892,7 +923,19 @@ contains
     myPsi = 0.0_c_double
     sig_x_unpk(1:k,1:k) => wsp((k**2+1):)
     sig_x_unpk = 0.0_c_double
+    !
+    ! COMPILER BUG IN OPEN64-C + GFORTRAN!! If I print out sig_x everything works.
+    ! If I don't then NaN pops up out of nowhere. I don't even know where the NaN
+    ! came from because I simply printing it out solves the problem... This is not
+    ! a dtpttr blas problem because even if I implement my own dtpttr the problem
+    ! is the same. I suspect something is wrong with their implementation of bind(C)?
+    ! Or Fortran safe flags?? But if I use gfortran with gcc then everything is fine.
+    !
+    !    print *, sig_x
+    !
     call dtpttr('L',k,sig_x,sig_x_unpk,k,info)
+!    call mydtpttr(sig_x,sig_x_unpk,k)
+    info = 0
     if (info /= 0) return
     do i=1,k
        sig_x_unpk(i,i) = exp(sig_x_unpk(i,i))
@@ -916,13 +959,13 @@ contains
     info = 0_c_int
   end subroutine
 
-  subroutine hwdthetada (k, dphidaout, out) bind(C, name="hwdthetada_")
+  recursive subroutine hwdthetada (k, dphidaout, out) bind(C, name="hwdthetada_")
     dimension dphidaout(k**2,k**2), out(k,k,k**2)
     out = - reshape(dphidaout, [k,k,k**2])
   end subroutine
 
   ! lwsp at least (k^6) + 2*(k^2) + 3
-  subroutine hphiha (t,H,ku,P,invP,Lambda,out,zwsp,lzwsp,info) bind(C, name="hphiha_")
+  recursive subroutine hphiha (t,H,ku,P,invP,Lambda,out,zwsp,lzwsp,info) bind(C, name="hphiha_")
     integer(c_int) lwsp, lzwsp,  a1,a2,b1,b2
     complex(c_double_complex) P, invP, Lambda, zwsp
     dimension H(ku,ku), P(ku,ku), invP(ku,ku), Lambda(ku), out(ku**2,ku**2,ku**2), zwsp(lzwsp)
@@ -969,7 +1012,7 @@ contains
     info = 0_c_int
   end subroutine
 
-  subroutine hwha(k,hphihaout,theta,out) bind(C,name="hwha_")
+  recursive subroutine hwha(k,hphihaout,theta,out) bind(C,name="hwha_")
     dimension hphihaout(k**2,k**2,k**2), theta(k), out(k,k**2,k**2)
     external dgemv
     do n=1,k**2
@@ -981,7 +1024,7 @@ contains
   end subroutine
 
   ! zwsp at least 2*k^2, wsp at least 4*(k^2)
-  subroutine hvhl(t, k, sig_x, P, invP, Lambda, wsp, lwsp, zwsp, lzwsp, out) bind(C,name="hvhl_")
+  recursive subroutine hvhl(t, k, sig_x, P, invP, Lambda, wsp, lwsp, zwsp, lzwsp, out) bind(C,name="hvhl_")
     integer lwsp, lzwsp
     complex(c_double_complex) zwsp, P, invP, Lambda
     dimension sig_x((k*(k+1))/2), out((k*(k+1))/2,(k*(k+1))/2,(k*(k+1))/2), P(k,k), invP(k,k), Lambda(k), &
@@ -1027,8 +1070,9 @@ contains
     enddo
   end subroutine
 
-  subroutine houchnsymh (Horig, m, k, nparorig, out)  bind(C, name='houchnsymh_')
+  recursive subroutine houchnsymh (Horig, m, k, nparorig, ithis, out)  bind(C, name='houchnsymh_')
     dimension Horig(m,nparorig,nparorig), out(m,nparorig-k*k+(k*(k+1))/2,nparorig-k*k+(k*(k+1))/2)
+    ! Me versus me
     idxb = 1
     do jb = 1,k
        do ib = jb,k
@@ -1038,22 +1082,26 @@ contains
                 if (ia==ja) then
                    if (ib==jb) then
                       do im = 1,m
-                         out(im,idxa,idxb) = Horig(im,ia+(ja-1)*k,ib+(jb-1)*k)
+                         out(im,ithis+idxa,ithis+idxb) = Horig(im,ithis+ia+(ja-1)*k,ithis+ib+(jb-1)*k)
                       enddo
                    else
                       do im = 1,m
-                         out(im,idxa,idxb) = Horig(im,ia+(ja-1)*k,ib+(jb-1)*k) + Horig(im,ia+(ja-1)*k,jb+(ib-1)*k)
+                         out(im,ithis+idxa,ithis+idxb) = Horig(im,ithis+ia+(ja-1)*k,ithis+ib+(jb-1)*k) &
+                              & + Horig(im,ithis+ia+(ja-1)*k,ithis+jb+(ib-1)*k)
                       enddo
                    endif
                 else
                    if (ib==jb) then
                       do im = 1,m
-                         out(im,idxa,idxb) = Horig(im,ia+(ja-1)*k,ib+(jb-1)*k) + Horig(im,ja+(ia-1)*k,ib+(jb-1)*k)
+                         out(im,ithis+idxa,ithis+idxb) = Horig(im,ithis+ia+(ja-1)*k,ithis+ib+(jb-1)*k) &
+                              & + Horig(im,ithis+ja+(ia-1)*k,ithis+ib+(jb-1)*k)
                       enddo
                    else
                       do im = 1,m
-                         out(im,idxa,idxb) = Horig(im,ia+(ja-1)*k,ib+(jb-1)*k) + Horig(im,ja+(ia-1)*k,ib+(jb-1)*k) +&
-                                           & Horig(im,ia+(ja-1)*k,jb+(ib-1)*k) + Horig(im,ja+(ia-1)*k,jb+(ib-1)*k)
+                         out(im,ithis+idxa,ithis+idxb) = Horig(im,ithis+ia+(ja-1)*k,ithis+ib+(jb-1)*k) &
+                              & + Horig(im,ithis+ja+(ia-1)*k,ithis+ib+(jb-1)*k) &
+                              & + Horig(im,ithis+ia+(ja-1)*k,ithis+jb+(ib-1)*k) &
+                              & + Horig(im,ithis+ja+(ia-1)*k,ithis+jb+(ib-1)*k)
                       enddo
                    endif
                 endif
@@ -1063,89 +1111,157 @@ contains
           idxb = idxb + 1
        enddo
     enddo
-    idelta = k*k-(k*(k+1))/2
-    idx = 1
+    idx = 1_c_int
+    
+    ! Me versus other
     do j = 1,k
        do i = j,k
-          do n = k*k+1,nparorig
+          iwherestart = 1_c_int
+          iwhereend   = ithis
+          idelta = 0_c_int
+10        continue
+          do n = iwherestart,iwhereend
              if (i == j) then
-                do im = 1,m
-                   out(im,idx,n-idelta) = Horig(im,j+(i-1)*k,n)
-                   out(im,n-idelta,idx) = out(im,idx,n-idelta)
+                do im = 1_c_int,m
+                   out(im,ithis+idx,n-idelta) = Horig(im,j+(i-1_c_int)*k,n)
+                   out(im,n-idelta,ithis+idx) = out(im,ithis+idx,n-idelta)
                 enddo
              else
-                do im = 1,m
-                   out(im,idx,n-idelta) = Horig(im,j+(i-1)*k,n) + Horig(im,i+(j-1)*k,n)
-                   out(im,n-idelta,idx) = out(im,idx,n-idelta)
+                do im = 1_c_int,m
+                   out(im,ithis+idx,n-idelta) = Horig(im,j+(i-1_c_int)*k,n) + Horig(im,i+(j-1_c_int)*k,n)
+                   out(im,n-idelta,ithis+idx) = out(im,ithis+idx,n-idelta)
                 enddo
              endif
           enddo
-          idx=idx+1
+          if (iwhereend /= nparorig) then
+             iwherestart = ithis+k*k+1
+             iwhereend   = nparorig
+             idelta      = k*k-(k*(k+1))/2
+             goto 10
+          endif
+          idx=idx+1_c_int
        enddo
     enddo
-    do jb = k*k+1,nparorig
-       do ib = k*k+1,nparorig
-          do im = 1,m
-             out(im,ib-idelta,jb-idelta) = Horig(im,ib,jb)
+    
+    ! Other versus other
+    jwherestart = 1_c_int
+    jwhereend   = ithis
+    jdelta = 0_c_int
+30  continue
+    do jb = jwherestart, jwhereend
+       iwherestart = 1_c_int
+       iwhereend   = ithis
+       idelta = 0_c_int
+20     continue
+       do ib = iwherestart, iwhereend
+          do im = 1_c_int,m
+             out(im,ib-idelta,jb-jdelta) = Horig(im,ib,jb)
           enddo
        enddo
+       if (iwhereend /= nparorig) then
+          iwherestart = ithis+k*k+1
+          iwhereend   = nparorig
+          idelta      = k*k-(k*(k+1))/2
+          goto 20
+       endif
     enddo
+    if (jwhereend /= nparorig) then
+       jwherestart = ithis+k*k+1
+       jwhereend   = nparorig
+       jdelta      = k*k-(k*(k+1))/2
+       goto 30
+    endif
+
   end subroutine
   
-  subroutine houspdh(Horig, par, djac,ildjac,joffset, m, k, npar_orig, npar_new, out) bind(C,name='houspdh_')
-    dimension Horig(m,npar_orig,npar_orig), par(npar_new), djac(ildjac,npar_orig), out(m,npar_new,npar_new)
-    idelta = k*k-(k*(k+1))/2
+  recursive subroutine houspdh(Horig, par, djac,ildjac,joffset, m, k, npar_orig, npar_new, &
+                   & ithis, out) bind(C,name='houspdh_')
+    dimension Horig(m,npar_orig,npar_orig), par((k*(k+1))/2), djac(ildjac,npar_orig), out(m,npar_new,npar_new)
     nek = 1
     do iell = 1,k
        do kappa = iell,k
           nij = 1
           do j = 1,k
              do i = j,k
+                ! This block versus this block
                 do im = 1,m
                    dinc = 0._c_double
                    do ixi = j,k
                       do ialpha = iell,k
                          dinc = dinc + par(iijtouplolidx(k,ixi,j))*par(iijtouplolidx(k,ialpha,iell))*( &
-                              & Horig(im,i+(ixi-1)*k,kappa +(ialpha-1)*k) + &
-                              & Horig(im,i+(ixi-1)*k,ialpha+(kappa-1) *k) + &
-                              & Horig(im,ixi+(i-1)*k,kappa +(ialpha-1)*k) + &
-                              & Horig(im,ixi+(i-1)*k,ialpha+(kappa-1) *k))
+                              & Horig(im,ithis+i+(ixi-1)*k,ithis+kappa +(ialpha-1)*k) + &
+                              & Horig(im,ithis+i+(ixi-1)*k,ithis+ialpha+(kappa-1) *k) + &
+                              & Horig(im,ithis+ixi+(i-1)*k,ithis+kappa +(ialpha-1)*k) + &
+                              & Horig(im,ithis+ixi+(i-1)*k,ithis+ialpha+(kappa-1) *k))
                       enddo
                    enddo
                    if (j == iell) then
                       dinc = dinc + &
-                           & (djac(joffset+im,i+(kappa-1)*k) + djac(joffset+im,kappa+(i-1)*k))
+                           & (djac(joffset+im,ithis+i+(kappa-1)*k) + djac(joffset+im,ithis+kappa+(i-1)*k))
                    endif
-                   out(im,nij,nek) = out(im,nij,nek) + dinc
+                   out(im,ithis+nij,ithis+nek) = out(im,ithis+nij,ithis+nek) + dinc
                 enddo
                 nij = nij+1
              enddo
           enddo
-          do it = (k*k+1),npar_orig
+          ! This block versus outside
+          iwherestart = 1_c_int
+          iwhereend   = ithis
+          idelta = 0_c_int
+1         continue
+          do it = iwherestart, iwhereend
              do ixi = iell,k
                 do im = 1,m
-                   out(im,it-idelta,nek) = out(im,it-idelta,nek) + &
-                   &    par(iijtouplolidx(k,ixi,iell)) &
-                   &       *(Horig(im,it,kappa+(ixi-1)*k) + Horig(im,it,ixi+(kappa-1)*k))
-                   out(im,nek,it-idelta) = out(im,it-idelta,nek)
+                   out(im,it-idelta,ithis+nek) = out(im,it-idelta,ithis+nek) + &
+                        &    par(iijtouplolidx(k,ixi,iell)) &
+                        &       *(Horig(im,it,ithis+kappa+(ixi-1)*k) + Horig(im,it,ithis+ixi+(kappa-1)*k))
+                   out(im,ithis+nek,it-idelta) = out(im,it-idelta,ithis+nek)
                 enddo
              enddo
           enddo
+          if (iwhereend /= npar_orig) then
+             iwherestart= (k*k+1_c_int)
+             iwhereend  = npar_orig
+             idelta     = k*k - (k*(k+1))/2
+             goto 1
+          endif
           nek = nek + 1
        enddo
     enddo
-    do it = (k*k+1),npar_orig
-       do jt = (k*k+1),npar_orig
+    
+    ! Outside versus outside, simply copy
+    jwherestart = 1_c_int
+    jwhereend   = ithis
+    jdelta = 0_c_int
+2   continue
+    do jt = jwherestart, jwhereend
+       iwherestart = 1_c_int
+       iwhereend   = ithis
+       idelta = 0_c_int
+3      continue
+       do it = iwherestart, iwhereend
           do im = 1,m
-             out(im,it-idelta,jt-idelta) = Horig(im,it,jt)
+             out(im,it-idelta,jt-jdelta) = Horig(im,it,jt)
           enddo
        enddo
+       if (iwhereend /= npar_orig) then
+          iwherestart= (k*k+1_c_int)
+          iwhereend  = npar_orig
+          idelta     = k*k - (k*(k+1))/2
+          goto 3
+       endif
     enddo
+    if (jwhereend /= npar_orig) then
+       jwherestart= (k*k+1_c_int)
+       jwhereend  = npar_orig
+       jdelta     = k*k - (k*(k+1))/2
+       goto 2
+    endif
   end subroutine
 
-  subroutine houlnspdh(Horig, par,djac,ildjac,joffset, m,k, npar_orig,npar_new, out) bind(C,name='houlnspdh_')
-    dimension Horig(m,npar_orig,npar_orig), par(npar_new), djac(ildjac,npar_orig), out(m,npar_new,npar_new)
-    idelta = k*k-(k*(k+1))/2
+  recursive subroutine houlnspdh(Horig, par,djac,ildjac,joffset, m,k, npar_orig, npar_new, ithis, out) bind(C,name='houlnspdh_')
+    dimension Horig(m,npar_orig,npar_orig), par((k*(k+1))/2), djac(ildjac,npar_orig), out(m,npar_new,npar_new)
+    !print *,ildjac,joffset,m,k,npar_orig,npar_new,ithis
     nek = 1
     do iell = 1,k
        do kappa = iell,k
@@ -1156,7 +1272,6 @@ contains
                    dinc = 0._c_double
                    do ixi = j,k
                       do ialpha = iell,k
-                         ! Fix L!!!! needs to be exponentiated with if-statement
                          if (ixi == j) then
                             dL1 = exp(par(iijtouplolidx(k,ixi,j)))
                          else
@@ -1168,17 +1283,17 @@ contains
                             dL2 = par(iijtouplolidx(k,ialpha,iell))
                          endif
                          dinc = dinc + dL1 * dL2 * ( &
-                              & Horig(im,i+(ixi-1)*k,kappa +(ialpha-1)*k) + &
-                              & Horig(im,i+(ixi-1)*k,ialpha+(kappa-1) *k) + &
-                              & Horig(im,ixi+(i-1)*k,kappa +(ialpha-1)*k) + &
-                              & Horig(im,ixi+(i-1)*k,ialpha+(kappa-1) *k))
+                              & Horig(im,ithis+i+(ixi-1)*k,ithis+kappa +(ialpha-1)*k) + &
+                              & Horig(im,ithis+i+(ixi-1)*k,ithis+ialpha+(kappa-1) *k) + &
+                              & Horig(im,ithis+ixi+(i-1)*k,ithis+kappa +(ialpha-1)*k) + &
+                              & Horig(im,ithis+ixi+(i-1)*k,ithis+ialpha+(kappa-1) *k))
                       enddo
                    enddo
                    if (i == j)        dinc = dinc * exp(par(iijtouplolidx(k,i,j)))
                    if (kappa == iell) dinc = dinc * exp(par(iijtouplolidx(k,kappa,iell)))
                    dord2 = 0._c_double
                    if (j == iell) then
-                      dord2 = djac(joffset+im, i+(kappa-1)*k) + djac(joffset+im, kappa+(i-1)*k)
+                      dord2 = djac(joffset+im, ithis+i+(kappa-1)*k) + djac(joffset+im, ithis+kappa+(i-1)*k)
                       if (i == j)        dord2 = dord2 * exp(par(iijtouplolidx(k,i,j)))
                       if (kappa == iell) dord2 = dord2 * exp(par(iijtouplolidx(k,kappa,iell)))
                    endif
@@ -1192,20 +1307,25 @@ contains
                             dL1 = par(iijtouplolidx(k,ixi,j))
                          endif
                          dinc = dinc + &
-                              & dL1 * (djac(joffset+im,i+(ixi-1)*k) + djac(joffset+im,ixi+(i-1)*k)) * dLrii
+                              & dL1 * (djac(joffset+im,ithis+i+(ixi-1)*k) + djac(joffset+im,ithis+ixi+(i-1)*k)) * dLrii
                       enddo
                    endif
-                   out(im,nij,nek) = out(im,nij,nek) + dinc
+                   out(im,ithis+nij,ithis+nek) = out(im,ithis+nij,ithis+nek) + dinc
                 enddo
                 nij = nij+1
              enddo
           enddo
+          ! This block versus others
           if (kappa == iell) then
              expterm = exp(par(iijtouplolidx(k,kappa,kappa)))
           else
              expterm = 1.0_c_double
           endif
-          do it = (k*k+1),npar_orig
+          iwherestart = 1_c_int
+          iwhereend   = ithis
+          idelta = 0_c_int
+1         continue
+          do it = iwherestart, iwhereend
              do ixi = iell,k
                 do im = 1,m
                    if (ixi == iell) then
@@ -1213,23 +1333,101 @@ contains
                    else
                       dL1 = par(iijtouplolidx(k,ixi,iell))
                    endif
-                   out(im,it-idelta,nek) = out(im,it-idelta,nek) + &
+                   out(im,it-idelta,ithis+nek) = out(im,it-idelta,ithis+nek) + &
                    &    expterm * dL1 &
-                   &       * (Horig(im,it,kappa+(ixi-1)*k) + Horig(im,it,ixi+(kappa-1)*k)) 
-                   out(im,nek,it-idelta) = out(im,it-idelta,nek)
+                   &       * (Horig(im,it,ithis+kappa+(ixi-1)*k) + Horig(im,it,ithis+ixi+(kappa-1)*k)) 
+                   out(im,ithis+nek,it-idelta) = out(im,it-idelta,ithis+nek)
                 enddo
              enddo
           enddo
+          if (iwhereend /= npar_orig) then
+             iwherestart = ithis+k*k+1_c_int
+             iwhereend   = npar_orig
+             idelta      = k*k-(k*(k+1))/2
+             goto 1
+          endif
           nek = nek + 1
        enddo
     enddo
-    do it = (k*k+1),npar_orig
-       do jt = (k*k+1),npar_orig
-          do im = 1,m
-             out(im,it-idelta,jt-idelta) = Horig(im,it,jt)
+
+    jwherestart = 1_c_int
+    jwhereend   = ithis
+    jdelta = 0_c_int
+5   continue
+    do jt = jwherestart, jwhereend
+       iwherestart = 1_c_int
+       iwhereend   = ithis
+       idelta = 0_c_int
+6      continue
+       do it = iwherestart, iwhereend
+          do im = 1_c_int,m
+             ! Other versus others
+             out(im,it-idelta,jt-jdelta) = Horig(im,it,jt)
           enddo
        enddo
+       if (iwhereend /= npar_orig) then
+          iwherestart = ithis+k*k+1_c_int
+          iwhereend   = npar_orig
+          idelta      = k*k-(k*(k+1_c_int))/2_c_int
+          goto 6
+       endif
     enddo
+    if (jwhereend /= npar_orig) then
+       jwherestart = ithis+k*k+1_c_int
+       jwhereend   = npar_orig
+       jdelta      = k*k-(k*(k+1_c_int))/2_c_int
+       goto 5
+    endif
+  end subroutine
+
+  ! This routine is disgusting... :(
+  recursive subroutine hchnlndiag(Hnew, nnew, Hold, nold, par, &
+                      & djacthis, ildjac, joffset, m, istart, k) bind(C, name ="hchnlndiag_")
+    dimension Hnew(m, nnew, nnew), Hold(m,nold,nold), par(k), djacthis(ildjac,k)
+    ijdiag = 0_c_int
+    ijo = 1_c_int
+    ijn = 1_c_int
+1   if (ijo > nold) goto 100
+    if (ijo >= istart+1_c_int .and. ijo < istart+k*k)   ijo= ijo+ijdiag
+    iidiag = 0_c_int
+    iio = 1_c_int
+    iin = 1_c_int
+2   if (iio > nold) goto 90
+    if (iio >= istart+1_c_int .and. iio < istart+k*k)   iio= iio+iidiag
+    do im=1,m
+       Hnew(im,iin,ijn) = Hold(im,iio,ijo)
+       if (ijo >= istart+1_c_int .and. ijo <= istart+k*k) then
+          Hnew(im,iin,ijn) = Hnew(im,iin,ijn) * exp(par(ijdiag+1_c_int))
+       endif
+       if (iio >= istart+1_c_int .and. iio <= istart+k*k) then
+          Hnew(im,iin,ijn) = Hnew(im,iin,ijn) * exp(par(iidiag+1_c_int))
+       endif
+    enddo
+    if (ijo >= istart+1_c_int .and. ijo <= istart+k*k .and. iio >= istart+1_c_int .and. iio <= istart+k*k) then
+       if (iidiag == ijdiag) then
+          do im=1,m
+             Hnew(im,iin,ijn) = Hnew(im,iin,ijn) + djacthis(joffset+im, ijdiag+1_c_int)
+          enddo
+       endif
+    endif
+    if (iio >= istart+1_c_int .and. iio < istart+k*k) then
+       iio = iio + (k-iidiag)
+       iidiag = iidiag+1_c_int
+    else
+       iio = iio + 1_c_int
+    endif
+    iin = iin+1_c_int
+    goto 2
+90  continue
+    if (ijo >= istart+1_c_int .and. ijo < istart+k*k) then
+       ijo    = ijo+ (k-ijdiag)
+       ijdiag = ijdiag + 1_c_int
+    else
+       ijo    = ijo+ 1_c_int
+    endif
+    ijn = ijn+1_c_int
+    goto 1
+100 continue
   end subroutine
 end module
 

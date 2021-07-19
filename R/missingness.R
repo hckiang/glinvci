@@ -10,7 +10,7 @@ trait_missingness = function (x) {
 
 tag_missing = function (mod, X) {
   if (!('glinv_gauss' %in% class(mod))) stop("Invalid argument: mod")
-  M = .Call('Rtagmiss', mod$ctree, length(unique(c(mod$apetree$edge))),
+  M = .Call(Rtagmiss, mod$ctree, length(unique(c(mod$apetree$edge))),
             trait_missingness(X))
   d = dim(M)
   N = factor(M, levels=c(0,1,2), labels=c('LOST','OK','MISSING'))
@@ -26,7 +26,7 @@ tag_regimes = function (mod, roots) {
       class(roots)[1]))
   if (!(length(roots) == length(unique(roots))))
     stop(sprintf("Two regimes cannot be simultaneously started at the same node", class(roots)[1]))
-  M = .Call('Rtagreg', mod$ctree, length(unique(c(mod$apetree$edge))),
+  M = .Call(Rtagreg, mod$ctree, length(unique(c(mod$apetree$edge))),
             as.integer(c(roots,-1)))
   M[mod$apetree$edge[1,1]] = NA
   M

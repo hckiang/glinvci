@@ -18,10 +18,8 @@ hessian_inv_warn = function (X, matrix_name = 'The matrix', extra_info_nonpd = '
 list_set_default = function (L, defaults) {
   default_names = names(defaults)
   L_names       = names(L)
-  for (i in seq_along(defaults)) {
-    if (!(default_names[[i]] %in% L_names)) {
+  for (i in seq_along(defaults))
+    if (!(default_names[[i]] %in% L_names))
       L[[default_names[[i]]]] = defaults[[i]]
-    }
-  }
   L
 }

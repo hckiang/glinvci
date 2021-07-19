@@ -34,7 +34,12 @@
         par = list(list(treesize = 2, k = 1, miss = NULL, lost = NULL), list(
     treesize = 4, k = 1, miss = NULL, lost = NULL), list(treesize = 29, 
     k = 2, miss = list(9, 10), lost = list(1:7, 19:20)))
-        repar = list(list(fn = "ou_diagH(ou_zaplost(oupar))", jac = "dou_diagH(dou_zaplost(oujac))", 
+        repar = list(list(fn = "brn(ou_zaplost(oupar))", jac = "dbrn(dou_zaplost(oujac))", 
+    hess = "hbrn(hou_zaplost(ouhess))", npar = "nparams_brn(D$k)", 
+    parform = "c(D$sig_x)"), list(fn = "brn(ou_haltlost(oupar))", 
+    jac = "dbrn(dou_haltlost(oujac))", hess = "hbrn(hou_haltlost(ouhess))", 
+    npar = "nparams_brn(D$k)", parform = "c(D$sig_x)"), list(
+    fn = "ou_diagH(ou_zaplost(oupar))", jac = "dou_diagH(dou_zaplost(oujac))", 
     hess = "hou_diagH(hou_zaplost(ouhess))", npar = "nparams_ou_diagH(D$k)", 
     parform = "c(diag(D$H),D$theta,D$sig_x)"), list(fn = "ou_diagH(ou_haltlost(oupar))", 
     jac = "dou_diagH(dou_haltlost(oujac))", hess = "hou_diagH(hou_haltlost(ouhess))", 
@@ -73,7 +78,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -15.7657127690)
+            expect_equal(sum(varest$hessian), -6.9093028825)
         
             j = 2
             mod = glinv(D$tr, D$x0, D$x,
@@ -83,7 +88,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -15.7657127690)
+            expect_equal(sum(varest$hessian), -6.9093028825)
         
             j = 3
             mod = glinv(D$tr, D$x0, D$x,
@@ -93,7 +98,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -4.6109789708)
+            expect_equal(sum(varest$hessian), -15.7657127690)
         
             j = 4
             mod = glinv(D$tr, D$x0, D$x,
@@ -103,7 +108,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -4.6109789708)
+            expect_equal(sum(varest$hessian), -15.7657127690)
         
             j = 5
             mod = glinv(D$tr, D$x0, D$x,
@@ -113,7 +118,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -15.7657127690)
+            expect_equal(sum(varest$hessian), -4.6109789708)
         
             j = 6
             mod = glinv(D$tr, D$x0, D$x,
@@ -123,7 +128,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -15.7657127690)
+            expect_equal(sum(varest$hessian), -4.6109789708)
         
             j = 7
             mod = glinv(D$tr, D$x0, D$x,
@@ -133,7 +138,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -6.1075126139)
+            expect_equal(sum(varest$hessian), -15.7657127690)
         
             j = 8
             mod = glinv(D$tr, D$x0, D$x,
@@ -143,7 +148,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -6.1075126139)
+            expect_equal(sum(varest$hessian), -15.7657127690)
         
             j = 9
             mod = glinv(D$tr, D$x0, D$x,
@@ -153,9 +158,29 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -0.8864052261)
+            expect_equal(sum(varest$hessian), -6.1075126139)
         
             j = 10
+            mod = glinv(D$tr, D$x0, D$x,
+                    parfns = list(eval(parse(text=repar[[j]]$fn))),
+                    pardims = list(eval(parse(text=repar[[j]]$npar))),
+                    parjacs = list(eval(parse(text=repar[[j]]$jac))),
+                    parhess = list(eval(parse(text=repar[[j]]$hess))))
+            varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
+                                      method="analytical"))
+            expect_equal(sum(varest$hessian), -6.1075126139)
+        
+            j = 11
+            mod = glinv(D$tr, D$x0, D$x,
+                    parfns = list(eval(parse(text=repar[[j]]$fn))),
+                    pardims = list(eval(parse(text=repar[[j]]$npar))),
+                    parjacs = list(eval(parse(text=repar[[j]]$jac))),
+                    parhess = list(eval(parse(text=repar[[j]]$hess))))
+            varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
+                                      method="analytical"))
+            expect_equal(sum(varest$hessian), -0.8864052261)
+        
+            j = 12
             mod = glinv(D$tr, D$x0, D$x,
                     parfns = list(eval(parse(text=repar[[j]]$fn))),
                     pardims = list(eval(parse(text=repar[[j]]$npar))),
@@ -176,7 +201,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -5.6146244595)
+            expect_equal(sum(varest$hessian), -7.3711590147)
         
             j = 2
             mod = glinv(D$tr, D$x0, D$x,
@@ -186,7 +211,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -5.6146244595)
+            expect_equal(sum(varest$hessian), -7.3711590147)
         
             j = 3
             mod = glinv(D$tr, D$x0, D$x,
@@ -196,7 +221,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -15.7723015968)
+            expect_equal(sum(varest$hessian), -5.6146244595)
         
             j = 4
             mod = glinv(D$tr, D$x0, D$x,
@@ -206,7 +231,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -15.7723015968)
+            expect_equal(sum(varest$hessian), -5.6146244595)
         
             j = 5
             mod = glinv(D$tr, D$x0, D$x,
@@ -216,7 +241,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -5.6146244595)
+            expect_equal(sum(varest$hessian), -15.7723015968)
         
             j = 6
             mod = glinv(D$tr, D$x0, D$x,
@@ -226,7 +251,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -5.6146244595)
+            expect_equal(sum(varest$hessian), -15.7723015968)
         
             j = 7
             mod = glinv(D$tr, D$x0, D$x,
@@ -236,7 +261,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -14.2432881326)
+            expect_equal(sum(varest$hessian), -5.6146244595)
         
             j = 8
             mod = glinv(D$tr, D$x0, D$x,
@@ -246,7 +271,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -14.2432881326)
+            expect_equal(sum(varest$hessian), -5.6146244595)
         
             j = 9
             mod = glinv(D$tr, D$x0, D$x,
@@ -256,9 +281,29 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -3.0712190930)
+            expect_equal(sum(varest$hessian), -14.2432881326)
         
             j = 10
+            mod = glinv(D$tr, D$x0, D$x,
+                    parfns = list(eval(parse(text=repar[[j]]$fn))),
+                    pardims = list(eval(parse(text=repar[[j]]$npar))),
+                    parjacs = list(eval(parse(text=repar[[j]]$jac))),
+                    parhess = list(eval(parse(text=repar[[j]]$hess))))
+            varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
+                                      method="analytical"))
+            expect_equal(sum(varest$hessian), -14.2432881326)
+        
+            j = 11
+            mod = glinv(D$tr, D$x0, D$x,
+                    parfns = list(eval(parse(text=repar[[j]]$fn))),
+                    pardims = list(eval(parse(text=repar[[j]]$npar))),
+                    parjacs = list(eval(parse(text=repar[[j]]$jac))),
+                    parhess = list(eval(parse(text=repar[[j]]$hess))))
+            varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
+                                      method="analytical"))
+            expect_equal(sum(varest$hessian), -3.0712190930)
+        
+            j = 12
             mod = glinv(D$tr, D$x0, D$x,
                     parfns = list(eval(parse(text=repar[[j]]$fn))),
                     pardims = list(eval(parse(text=repar[[j]]$npar))),
@@ -279,7 +324,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -64.2839302123)
+            expect_equal(sum(varest$hessian), -78.4804280222)
         
             j = 2
             mod = glinv(D$tr, D$x0, D$x,
@@ -289,7 +334,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -64.2839302123)
+            expect_equal(sum(varest$hessian), -78.4804280222)
         
             j = 3
             mod = glinv(D$tr, D$x0, D$x,
@@ -299,7 +344,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -87.8881551963)
+            expect_equal(sum(varest$hessian), -64.2839302123)
         
             j = 4
             mod = glinv(D$tr, D$x0, D$x,
@@ -309,7 +354,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -87.8881551963)
+            expect_equal(sum(varest$hessian), -64.2839302123)
         
             j = 5
             mod = glinv(D$tr, D$x0, D$x,
@@ -319,7 +364,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -74.3482596935)
+            expect_equal(sum(varest$hessian), -87.8881551963)
         
             j = 6
             mod = glinv(D$tr, D$x0, D$x,
@@ -329,7 +374,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -81.3334552972)
+            expect_equal(sum(varest$hessian), -87.8881551963)
         
             j = 7
             mod = glinv(D$tr, D$x0, D$x,
@@ -339,7 +384,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -118.9767257510)
+            expect_equal(sum(varest$hessian), -74.3482596935)
         
             j = 8
             mod = glinv(D$tr, D$x0, D$x,
@@ -349,7 +394,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -124.8499942739)
+            expect_equal(sum(varest$hessian), -81.4972851364)
         
             j = 9
             mod = glinv(D$tr, D$x0, D$x,
@@ -359,7 +404,7 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -201.9112320177)
+            expect_equal(sum(varest$hessian), -118.9767257510)
         
             j = 10
             mod = glinv(D$tr, D$x0, D$x,
@@ -369,6 +414,27 @@
                     parhess = list(eval(parse(text=repar[[j]]$hess))))
             varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
                                       method="analytical"))
-            expect_equal(sum(varest$hessian), -200.0100172472)
+            expect_equal(sum(varest$hessian), -124.9538176405)
+        
+            j = 11
+            mod = glinv(D$tr, D$x0, D$x,
+                    parfns = list(eval(parse(text=repar[[j]]$fn))),
+                    pardims = list(eval(parse(text=repar[[j]]$npar))),
+                    parjacs = list(eval(parse(text=repar[[j]]$jac))),
+                    parhess = list(eval(parse(text=repar[[j]]$hess))))
+            varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
+                                      method="analytical"))
+            expect_equal(sum(varest$hessian), -201.9112320177)
+        
+            j = 12
+            mod = glinv(D$tr, D$x0, D$x,
+                    parfns = list(eval(parse(text=repar[[j]]$fn))),
+                    pardims = list(eval(parse(text=repar[[j]]$npar))),
+                    parjacs = list(eval(parse(text=repar[[j]]$jac))),
+                    parhess = list(eval(parse(text=repar[[j]]$hess))))
+            varest = suppressWarnings(varest(mod, eval(parse(text=repar[[j]]$parform)),
+                                      method="analytical"))
+            expect_equal(sum(varest$hessian), -199.7789935752)
         
     })
+

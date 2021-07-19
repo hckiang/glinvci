@@ -41,12 +41,12 @@
 #' For lost traits, \code{ou_haltlost} assumes the followings:
 #' \enumerate{
 #'   \item In the entire branch leading to the earliest node \eqn{j} whose \eqn{p}-th dimension
-#'         is tagged \code{LOST}, the lost trait dimension does not evolve.
+#'         is tagged \code{LOST}, the lost trait dimension does not evolve at all.
 #'   \item In the entire same branch, the magnitude of the \eqn{p}-th dimension at \eqn{j}'s
-#'         mother node has no influence on other dimensions through neither the linear
-#'         combination with the drift matrix nor the Wiener process covariance; in other words,
-#'         the SDE governing the non-lost dimensions' random walk is invariant of \eqn{j}'s
-#'         mother nodes' \eqn{p}-th dimension.
+#'         mother node has no influence on other dimensions, in any instantaneous moments during
+#'         the evolution in the branch, neither through the linear combination with the drift
+#'         matrix nor the Wiener process covariance; in other words, the SDE governing the 
+#'         non-lost dimensions' random walk is invariant of \eqn{j}'s mother nodes' \eqn{p}-th dimension.
 #' }
 #' Therefore, \code{ou_haltlost} first set the \eqn{p}-th row and column of both of \eqn{H_j}
 #' and the \eqn{p}-th row of \eqn{Sigma_x} to zero and marginalise out the degenerate Gaussian
@@ -117,13 +117,17 @@ ou_haltlost = function (parfn) {
     H                           = par[1L:(k*k)]
     dim(H)                      = c(k,k)
     whichlost_me= which(misstags_me=='LOST')
-    H[whichlost_me,]     = 0.0
+    H[whichlost_me,]            = 0.0
     H[,misstags_mother=='LOST'] = 0.0
     par[1L:(k*k)]    = c(H)
     ## Set missing _row_ of sigma_x to zero.
     sigma_x_fulldim_mask = matrix(F,k,k)
     sigma_x_fulldim_mask[whichlost_me,] = T
     par[k*k+k+which(sigma_x_fulldim_mask[lower.tri(sigma_x_fulldim_mask, diag=T)])] = 0.
+    sigma_x_ninf_mask = matrix(F,k,k)
+    for (i in whichlost_me)
+      sigma_x_ninf_mask[i,i] = T
+    par[k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])] = -Inf
     simple_zap(par, t, misstags_mother, misstags_me, ...)
   }
 }
@@ -147,8 +151,12 @@ dou_haltlost = function (jacfn) {
     whichzero_sigx = k*k+k+which(sigma_x_fulldim_mask[lower.tri(sigma_x_fulldim_mask, diag=T)])
     whichzero = c(whichzero_H, whichzero_sigx)
     par[whichzero]                     = 0.
+    sigma_x_ninf_mask = matrix(F,k,k)
+    for (i in whichlost_me)
+      sigma_x_ninf_mask[i,i] = T
+    par[k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])] = -Inf
     jacob = simple_dzap(par, t, misstags_mother, misstags_me, ...)
-    jacob[,whichzero]                  = 0.
+    jacob[,c(whichzero,k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)]))]                  = 0.
     jacob
   }
 }
@@ -171,10 +179,14 @@ hou_haltlost = function (hessfn) {
     whichzero_sigx = k*k+k+which(sigma_x_fulldim_mask[lower.tri(sigma_x_fulldim_mask, diag=T)])
     whichzero = c(whichzero_H, whichzero_sigx)
     par[whichzero]                     = 0.
+    sigma_x_ninf_mask = matrix(F,k,k)
+    for (i in whichlost_me)
+      sigma_x_ninf_mask[i,i] = T
+    par[k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])] = -Inf
     res = simple_hzap(par, t, misstags_mother, misstags_me, ...)
     lapply(res, function (x) {
-      x[,whichzero,] = 0.
-      x[,,whichzero] = 0.
+      x[,c(whichzero,k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])),] = 0.
+      x[,,c(whichzero,k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)]))] = 0.
       x
     })
   }

@@ -2445,4 +2445,58 @@ contains
     enddo
   end subroutine
 
+  recursive subroutine hesscpyskip(Hnew, nnew, Hold, nold, m, istart, ihowmuch) bind(C, name="hesscpyskip_")
+    dimension Hnew(m, nnew, nnew), Hold(m,nold,nold)
+    iin = 1_c_int
+    do iio=1,nold
+       if (.not. (iio > istart .and. iio <= istart+ihowmuch)) then
+          ijn = 1_c_int
+          do ijo=1,nold
+             if (.not. (ijo > istart .and. ijo <= istart+ihowmuch)) then
+                do im=1,m
+                   Hnew(im,iin,ijn) = Hold(im,iio,ijo)
+                enddo
+                ijn = ijn+1
+             endif
+          enddo
+          iin = iin+1
+       endif
+    enddo
+  end subroutine
+
+  recursive subroutine hesschopnondiag(Hnew, nnew, Hold, nold, m, istart, k) bind(C, name="hesschopnondiag_")
+    dimension Hnew(m, nnew, nnew), Hold(m,nold,nold)
+    ijdiag = 0_c_int
+    ijo = 1_c_int
+    ijn = 1_c_int
+1   if (ijo > nold) goto 100
+    if ((ijo >= istart+1_c_int) .and. (ijo < istart+k*k))   ijo= ijo+ijdiag
+    iidiag = 0_c_int
+    iio = 1_c_int
+    iin = 1_c_int
+2   if (iio > nold) goto 90
+    if ((iio >= istart+1_c_int) .and. (iio < istart+k*k))   iio= iio+iidiag
+    do im=1,m
+       Hnew(im,iin,ijn) = Hold(im,iio,ijo)
+    enddo
+    if (iio >= istart+1_c_int .and. iio < istart+k*k) then
+       iio = iio + (k-iidiag)
+       iidiag = iidiag+1_c_int
+    else
+       iio = iio + 1_c_int
+    endif
+    iin = iin+1_c_int
+    goto 2
+90  continue
+    if (ijo >= istart+1_c_int .and. ijo < istart+k*k) then
+       ijo    = ijo+ (k-ijdiag)
+       ijdiag = ijdiag + 1_c_int
+    else
+       ijo    = ijo+ 1_c_int
+    endif
+    ijn = ijn+1_c_int
+    goto 1
+100 continue
+  end subroutine
+
 end module dglinv
