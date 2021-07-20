@@ -1,5 +1,7 @@
 # glinvci
-`glinv` is an R package which enables computation of asymptotic confidence intervals of a class of continuous-time
+[![Build Status](https://travis-ci.com/hckiang/glinvci.svg?branch=main)](https://travis-ci.com/hckiang/glinvci)
+
+`glinv` is an R package which enables computation of asymptotic confidence intervals for a class of continuous-time
 Gaussian branching processes along known phylogenies, including the OU process commonly used in phylogenetic
 comparative methods.
 
