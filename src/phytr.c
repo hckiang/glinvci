@@ -904,6 +904,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 				if (!(t->u.rbk.hessflat= malloc(NHESS*sizeof(double))))
 					goto MEMFAIL;
 				t->u.rbk.hessflat_needs_free = 1;
+				dzero(t->u.rbk.hessflat, NHESS);
 			}
 		}
 		dzero(t->u.rbk.hessflat, (size_t)(NHESS));
