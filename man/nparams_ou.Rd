@@ -6,6 +6,7 @@
 \alias{nparams_ou_logdiagH}
 \alias{nparams_ou_symH}
 \alias{nparams_ou_spdH}
+\alias{nparams_brn}
 \title{Get the number of parameters of some pre-defined models}
 \usage{
 nparams_ou(k)
@@ -17,6 +18,8 @@ nparams_ou_logdiagH(k)
 nparams_ou_symH(k)
 
 nparams_ou_spdH(k)
+
+nparams_brn(k)
 }
 \arguments{
 \item{k}{An Integer. The total number of dimensions of the multivariate traits.}

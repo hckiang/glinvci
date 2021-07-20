@@ -1165,11 +1165,11 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 		lhessmem = 0; lblk = 0; hessptr = 0;
 
 		swsp_a=0; lwsp_a=0;
-		/* SLOW: THIS LOOP IS MONSTROUS */
-		stack_siz_fixed(pv_ancestry[k], 0, &lwsp_a, sizeof(*stalpha));
-		swsp_a += lwsp_a;
+		sumnode_siz_fixed(pv_ancestry[k], 0, &lwsp_a, sizeof(*stalpha));
+		swsp_a += lwsp_a; /* Stack pointer advanced to a size enough for walking the whole tree.
+				     Stack_size/sizeof(*stalpha) <= ndesc, mathematically guaranteed. */
 		lwsp_a = 0;
-		stack_siz_fixed(pv_ancestry[k], 0, &lwsp_a, DFQKSIZ+sizeof(*stalpha));
+		sumnode_siz_fixed(pv_ancestry[k], 0, &lwsp_a, DFQKSIZ+sizeof(*stalpha));
 #define PAIR_HESS_SIZE(KNV,KNU,KMV,KMU) (((KNU*(KNU+1))/2)*((KMU*(KMU+1))/2)+ KNV*KNU*((KMU*(KMU+1))/2) + KNU*(KMU*(KMU+1))/2 +\
 					 ((KNU*(KNU+1))/2)* KMV*KMU         + KNV*KNU*KMV*KMU           + KNU*KMV*KMU         +\
 					 ((KNU*(KNU+1))/2)* KMU             + KNV*KNU*KMU               + KNU*KMU)
@@ -1178,13 +1178,13 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 		lwsp_a += lhessmem;
 		sumnode_siz_fixed(pv_ancestry[k], 0, &lpushback, sizeof(*pushback));
 		lwsp_a += lpushback;
-		lwsp_a = lwsp_a;
+		
 		/* In C11, POSIX.1-2008, glibc >= 2.15, musl, and Microsoft, malloc() and free() is thread safe.
 		   Everybody is assuming this nowadays. But don't use something like PGI's -Mipa=inline etc.
 		   to mess with the libc binary...  */
 		if (! (wsp_a = malloc(lwsp_a))) return; /* Leaks tiny amount of memory. */
 		stalpha  =wsp_a;
-		hessmem  =(void*)((char*)wsp_a+swsp_a); swsp_a +=lhessmem;
+		hessmem  =(void*)((char*)wsp_a+swsp_a); swsp_a +=lhessmem; /* Skip swsp_a to leave room for the stack. */
 		pushback =(void*)((char*)wsp_a+swsp_a); swsp_a +=lpushback;
 		/* Start recursion to compute hessian values */
 		stalpha[0].dfqk1_ch = (void*)((char*)wsp_a+swsp_a); swsp_a+=DFQKSIZ;

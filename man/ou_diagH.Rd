@@ -13,6 +13,9 @@
 \alias{ou_spdH}
 \alias{dou_spdH}
 \alias{hou_spdH}
+\alias{brn}
+\alias{dbrn}
+\alias{hbrn}
 \title{Restrict the drift matrix of OU model.}
 \usage{
 ou_diagH(parfn)
@@ -38,6 +41,12 @@ ou_spdH(parfn, log = T)
 dou_spdH(jacfn, log = T)
 
 hou_spdH(hessfn, jacfn, log = T)
+
+brn(parfn)
+
+dbrn(jacfn)
+
+hbrn(hessfn)
 }
 \arguments{
 \item{parfn}{A function that maps from the user-parametrisation to the underlying Gaussian parameters.
@@ -55,7 +64,7 @@ of \code{parfn}.}
 named \code{Phi}, \code{w}, \code{V} respectively inside the list. \code{((hessfn)(...))$Phi[m,i,j]}
 contains the cross second-order partial derivative of \eqn{\Phi_m} (here we treat the matrix
 \eqn{\Phi} as a column-major-flattened vector) with respect to the \eqn{i}-th and\eqn{j}-th parameters
-in the joint \eqn{(H,\theta,\Sigma_x)} vector, and
+in the joint \eqn{(H,\theta,\Sigma_x')} vector, and
 \code{((hessfn)(...))$w[m,i,j]} and \code{((hessfn)(...))$V[m,i,j]}
 analogously contains second-order derivative with respect to \eqn{w_m} and \eqn{V'_m}.}
 
@@ -92,13 +101,15 @@ to their logarithm to ensure that they are all positive. The likelihood
 surface will be multi-modal in the non-logarithm version because any
 arbitrary sign change in the Cholesky factor's diagonals does not change
 the likelihood value.
+
+\code{brn} is a restricts the OU model into a brownian motion model.
 }
 \details{
 \subsection{How reparametrisation and restriction works}{
 
 In the simplest form, without any restriction or reparametrisation, the user typically
 needs to pass \code{oupar}, \code{oujac}, \code{ouhess}, all of which are simply
-functions which maps from the OU parameters \eqn{(H,\theta,\Sigma_x)} to the Gaussian
+functions which maps from the OU parameters \eqn{(H,\theta,\Sigma_x')} to the Gaussian
 paramters \eqn{(\Phi_i,w_i,V'_i)} for each node. For example:
 \preformatted{
         mod.full = glinv(tree, x0, my_data,
@@ -123,7 +134,7 @@ and \code{h} stands for `Hessian'.
 In the above call, ou_logdiagH(oupar) accepts the \code{oupar} function as argument
 and returns a new function. This new function behaves the same way as oupar itself,
 except that it expects its first argument (which is the model parameters) to be of
-lower dimension, only consisting of \eqn{(h,\theta,\Sigma_x)} where \eqn{h} is the
+lower dimension, only consisting of \eqn{(h,\theta,\Sigma_x')} where \eqn{h} is the
 diagonal vector of \eqn{H}. The following example should be illustrative:
 \preformatted{
         f = ou_logdiagH(oupar)
@@ -140,14 +151,16 @@ diagonal vector of \eqn{H}. The following example should be illustrative:
 }
 
 \subsection{Details about each pre-defined restrictions}{
-The following table summarises all the pre-defined \code{ou_*} functions.
+The following table summarises all the pre-defined \code{ou_*} functions. See \code{\link{oupar}}
+for precise meaning of the \eqn{(H,\theta,\Sigma_x')} mentioned below.
 \tabular{ll}{
   \strong{R function}   \tab \strong{Restriction}\cr
-  \code{*_diagH}    \tab \eqn{(h,\theta,\Sigma_x)}, with \eqn{h=diag(H)}\cr
-  \code{*_logdiagH} \tab \eqn{(log(h),\theta,\Sigma_x)}, with \eqn{h=diag(H)}\cr
-  \code{*_symH}     \tab \eqn{(L,\theta,\Sigma_x)}, with \eqn{L} being lower-triangular part of H\cr
-  \code{*_spdH, log=F}  \tab \eqn{(L,\theta,\Sigma_x)}, with \eqn{L} being Cholesky factor of H\cr
-  \code{*_spdH, log=T}  \tab \eqn{(L',\theta,\Sigma_x)} where \eqn{L'} equals \eqn{L}, except that on the diagonals \eqn{L'_i} = \eqn{log L_i}
+  \code{*brn}           \tab \eqn{(0,0,\Sigma_x')}. The Brownian motion.\cr
+  \code{*_diagH}        \tab \eqn{(h,\theta,\Sigma_x')}, with \eqn{h=diag(H)}\cr
+  \code{*_logdiagH}     \tab \eqn{(log(h),\theta,\Sigma_x')}, with \eqn{h=diag(H)}\cr
+  \code{*_symH}         \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being lower-triangular part of H\cr
+  \code{*_spdH, log=F}  \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being Cholesky factor of H\cr
+  \code{*_spdH, log=T}  \tab \eqn{(L',\theta,\Sigma_x')} where \eqn{L'} equals \eqn{L}, except that on the diagonals \eqn{L'_i} = \eqn{log L_i}
 }
 By Cholesky factor, we mean the only the non-zero part of the lower-triangular Cholesky factor.
 }

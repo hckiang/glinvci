@@ -154,9 +154,10 @@ dou_haltlost = function (jacfn) {
     sigma_x_ninf_mask = matrix(F,k,k)
     for (i in whichlost_me)
       sigma_x_ninf_mask[i,i] = T
-    par[k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])] = -Inf
+    whichninf = k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])
+    par[whichninf] = -Inf
     jacob = simple_dzap(par, t, misstags_mother, misstags_me, ...)
-    jacob[,c(whichzero,k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)]))]                  = 0.
+    jacob[,c(whichzero,whichninf)]                  = 0.
     jacob
   }
 }
@@ -182,11 +183,12 @@ hou_haltlost = function (hessfn) {
     sigma_x_ninf_mask = matrix(F,k,k)
     for (i in whichlost_me)
       sigma_x_ninf_mask[i,i] = T
-    par[k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])] = -Inf
+    whichninf = k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])
+    par[whichninf] = -Inf
     res = simple_hzap(par, t, misstags_mother, misstags_me, ...)
     lapply(res, function (x) {
-      x[,c(whichzero,k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)])),] = 0.
-      x[,,c(whichzero,k*k+k+which(sigma_x_ninf_mask[lower.tri(sigma_x_ninf_mask, diag=T)]))] = 0.
+      x[,c(whichzero,whichninf),] = 0.
+      x[,,c(whichzero,whichninf)] = 0.
       x
     })
   }

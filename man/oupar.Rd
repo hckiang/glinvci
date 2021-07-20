@@ -55,7 +55,13 @@ lower-triangular matrix, \eqn{W(t)} is the Brownian motion process.
 The parameters of this model is \eqn{(H,\theta,\Sigma_x)},
 therefore \eqn{k^2+k+k(k+1)/2} dimensional.
 
+This package uses parameterisation \eqn{(H,\theta,\Sigma_x')}, where
+\eqn{H} and \eqn{\theta} is the same as above defined, and \eqn{\Sigma_x'}
+is the lower-triangular part of \eqn{\Sigma_x}, except that, only on diagonal
+entries, \eqn{\Sigma_x'=log(\Sigma_x)}. The use of logarithm is for
+eliminating multiple local maxima in the log-likelihood.
+
 The \code{par} arguemnt is the concatenation of major-column-flattened
 \eqn{H}, \eqn{\theta}, and the major-column-flattened lower-triangular part
-of \eqn{\Sigma_x}.
+of \eqn{\Sigma_x'}.
 }

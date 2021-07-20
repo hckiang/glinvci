@@ -455,32 +455,33 @@ tip_purge.matrix = function (X)
 #' @examples
 #' \dontrun{
 #' ### --- STEP 1: Making an example tree and trait data
-#' ntips = 100
+#' ntips = 200
 #' k     = 2                 # No. of trait dimensions
 #' tr    = ape::rtree(ntips) 
 #' X     = matrix(rnorm(k*ntips), k, ntips)
 #' x0    = rnorm(k)
 #' 
 #' ### --- STEP 2: Making a model object. We use OU as an example.
+#' ###             Assume H is a positively definite diagonal matrix.
 #' mod = glinv(tr, x0, X,
-#'             parfns = list(ou_haltlost(oupar)),
-#'             pardims = list(nparams_ou(k)),
-#'             parjacs = list(dou_haltlost(oujac)),
-#'             parhess = list(hou_haltlost(ouhess)))
+#'             parfns = list(ou_logdiagH(ou_haltlost(oupar))),
+#'             pardims = list(nparams_ou_diagH(k)),
+#'             parjacs = list(dou_logdiagH(dou_haltlost(oujac))),
+#'             parhess = list(hou_logdiagH(hou_haltlost(ouhess))))
 #'
 #' ### --- STEP 3: Try getting the likelihood, gradient etc.
 #' H     = matrix(c(1,0,0,-1), k)
 #' theta = c(0,0)
 #' sig   = matrix(c(0.5,0,0,0.5), k)
 #' sig_x = t(chol(sig))
-#' par_init = c(H=H,theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=T)])
+#' par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=T)])
 #' print(par_init)
 #' print(lik(mod)(par_init))
 #' print(grad(mod)(par_init))
 #' print(hess(mod)(par_init))
 #'
 #' ### --- STEP 4: Fitting a model
-#' fitted = fit(mod, par_init, method='L-BFGS-B')
+#' fitted = fit(mod, par_init)
 #' print(fitted)
 #' 
 #' ### --- STEP 5: Estimating variance-covariance of the MLE
@@ -1037,7 +1038,7 @@ varest.glinv = function (mod,
 #'                         The first column is the lower limits and second column is the upper limits.
 #' @export
 marginal_ci = function (varest_result, lvl = 0.95) {
-  c_alpha = qnorm(1-(1-lvl/2))
+  c_alpha = qnorm(1-((1-lvl)/2))
   D = diag(varest_result$vcov)
   if (any(D <= 0)) stop('Cannot compute marginal confidence interval, because some diagonal elements of the variance-covariance is non-positive.')
   upper = varest_result$mlepar + sqrt(diag(varest_result$vcov)) * c_alpha
