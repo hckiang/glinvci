@@ -61,7 +61,7 @@ is the lower-triangular part of \eqn{\Sigma_x}, except that, only on diagonal
 entries, \eqn{\Sigma_x'=log(\Sigma_x)}. The use of logarithm is for
 eliminating multiple local maxima in the log-likelihood.
 
-The \code{par} arguemnt is the concatenation of major-column-flattened
-\eqn{H}, \eqn{\theta}, and the major-column-flattened lower-triangular part
+The \code{par} arguemnt is the concatenation of column-major-flattened
+\eqn{H}, \eqn{\theta}, and the column-major-flattened lower-triangular part
 of \eqn{\Sigma_x'}.
 }

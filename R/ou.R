@@ -59,8 +59,8 @@ nparams_brn  = function (k) (k*(k+1L))%/%2L
 #' entries, \eqn{\Sigma_x'=log(\Sigma_x)}. The use of logarithm is for
 #' eliminating multiple local maxima in the log-likelihood.
 #' 
-#' The \code{par} arguemnt is the concatenation of major-column-flattened
-#' \eqn{H}, \eqn{\theta}, and the major-column-flattened lower-triangular part
+#' The \code{par} arguemnt is the concatenation of column-major-flattened
+#' \eqn{H}, \eqn{\theta}, and the column-major-flattened lower-triangular part
 #' of \eqn{\Sigma_x'}.
 #'
 #' @param par     A numeric vector containing the joint vector of the
