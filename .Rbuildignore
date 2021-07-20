@@ -2,3 +2,4 @@
 ^Meta$
 .git
 .gitignore
+.travis.yml
