@@ -96,6 +96,7 @@ contains
 
   ! For A = PLP^{-1}, output P, Lambda, and P^{-1} if A is diagonalisable. Otherwise output
   ! info /= 0 with the content of P, Lambda and invP undefined on exit.
+  ! Wsp at least 2*(k**2), zwsp at least 2*(k**2)
   recursive subroutine zeiginv(A,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="zeiginv_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) k,lwsp,lzwsp,info,ipiv(k)
@@ -153,9 +154,11 @@ contains
     complex(c_double_complex), pointer :: zout(:,:)
     zout(1:k,1:k) => zwsp(1:(k**2))
     do j = 1,k
-       zout(j,:) = P(j,:) * exp(-t*Lambda)
+       do i = 1,k
+          zout(i,j) = P(i,j) * exp(-t*Lambda(j))
+       enddo
     enddo
-    Phi = real(matmul(zout, invP))
+    Phi(:,:) = dble(real(matmul(zout, invP)))
   end subroutine
 
   ! A, theta and sig_x is our input, V,w,Phi is output, V's initial value is summed into result.
@@ -177,10 +180,9 @@ contains
                        & zwsp,lzwsp,eigavail,info) bind(C, name="d0geouvwphi_")
     complex(c_double_complex) P, invP, Lambda
     integer(c_int) :: info, k, eigavail, lwsp, lzwsp
-    dimension A(k,k), ipiv(k), wsp(lwsp), V((k*(k+1))/2), w(k), Phi(k,k), Lambda(k), &
-         & LR(k), LI(k), P(k,k), invP(k,k), sig_x((k*(k+1))/2), theta(k)
+    dimension A(k,k), wsp(lwsp), V((k*(k+1))/2), w(k), Phi(k,k), Lambda(k), &
+         & P(k,k), invP(k,k), sig_x((k*(k+1))/2), theta(k)
     complex(c_double_complex), target :: zwsp(lzwsp)
-    complex(c_double_complex), pointer :: ztmp(:,:), ztmp2(:,:)
     target wsp, Phi
     real(c_double), pointer :: tmp(:,:), sig(:,:)
     external dgpadm, dgemv
@@ -206,7 +208,7 @@ contains
   end subroutine
 
   ! Copy the real part of the complex symmetric matrix stored in `zA` in standard form
-  ! into `rAP` stored in packed form.
+  ! into `rAP` stored in packed form. Strictly upper/lower part of zA is not referenced.
   recursive subroutine z2dtrttp(uplo,k,zA,rAP,wsp)
     complex(c_double_complex) zA
     integer(c_int) lda
@@ -217,7 +219,7 @@ contains
     call dtrttp(uplo,k,wsp,k,rAP,info)
   end subroutine
 
-  ! zwsp at least 2*k**2, wsp at least k**2. Output stored at wsp.
+  ! zwsp at least 2*k**2, wsp at least k**2. Output stored in V.
   recursive subroutine ouv(t,k,sig,P,invP,Lambda,V,zwsp,lzwsp,wsp,lwsp) bind(C, name="ouv_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) lzwsp,lwsp
@@ -237,6 +239,7 @@ contains
   end subroutine
 
   ! Given a Jacobian in a basis defined by P, return the Jacobian in standard basis
+  ! zwsp: k^2
   recursive subroutine chgbasis(D,P,invP,k,zwsp,out)
     complex(c_double_complex) P, invP, zwsp, D
     dimension D(k**2,k**2), P(k,k), invP(k,k), zwsp(k**2), out(k**2,k**2)
@@ -254,6 +257,7 @@ contains
 
   ! Same as chgbasis but returns the Jacobian in a packed (lower-triangular) format.
   ! See the dim. of `out'. D needs to be symmetric or result is undefined.
+  ! zwsp at least k^2.
   subroutine dpchgbasis(D,P,invP,k,zwsp,wsp,out)
     complex(c_double_complex) P, invP, zwsp, D
     dimension D(k**2,k**2), P(k,k), invP(k,k), zwsp(k**2), wsp(k**2), out((k*(k+1))/2,k**2)
@@ -495,21 +499,22 @@ contains
     info = 0
   end subroutine
 
-  !! TODO: move PsiB into zwsp for safety. wsp at least 2*(k^2); zwsp at least (k^4+k^2)
+  !! wsp at least 2*(k^2); zwsp at least (k^4+2*k^2)
   recursive subroutine dvda(t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="dvda_")
     integer(c_int) lwsp,lzwsp,eigavail
     complex(c_double_complex) P,invP,Lambda,zwsp
-    dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), out(((k*(k+1))/2),k**2), PsiB(k,k)
+    dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), out(((k*(k+1))/2),k**2)
     target :: zwsp, wsp
-    complex(c_double_complex), pointer :: tmp(:,:), wgt(:), D(:,:), thisD(:,:), X(:,:)
-    complex(c_double_complex) :: z,c,PsiB 
+    complex(c_double_complex), pointer :: tmp(:,:), D(:,:), thisD(:,:), X(:,:), PsiB(:,:)
+    complex(c_double_complex) :: z,c
     integer(c_int) a1,a2
     if (eigavail==0) then
        call zeiginv(H,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info)
        if (info /= 0) return
     end if
-    D(1:(k**2),1:(k**2)) => zwsp(1:)
-    X(1:k,1:k)           => zwsp((k**4+1):)
+    D(1:(k**2),1:(k**2)) => zwsp(1:(k**4))
+    X(1:k,1:k)           => zwsp((k**4+1):(k**4+k**2))
+    PsiB(1:k,1:k)        => zwsp((k**4+k**2+1):(k**4+2*(k**2)))
     PsiB = matmul(invP, matmul(Psi, transpose(invP)))
     idx = 1
     do a2 = 1,k
@@ -537,6 +542,7 @@ contains
     info = 0
   end subroutine
 
+  ! wsp: 3*k^2, lzwsp: 2*k^2
   recursive subroutine dvdsigx(t,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="dvdsigx_")
     integer(c_int) lwsp,lzwsp
     complex(c_double_complex) P,invP,Lambda,zwsp
@@ -564,7 +570,7 @@ contains
     m=1
     do j=1,k
        do i=j,k
-          UijLt = 0.0_c_double
+          UijLt(:,:) = 0.0_c_double
           ! Can be made faster... We don't need to unpack -> assign. Only a loop for assignment is needed.
           UijLt(i,:) = sig_x_unpk(:,j)
           UijLt(:,i) = UijLt(:,i) + UijLt(i,:)
@@ -578,16 +584,16 @@ contains
     enddo
   end subroutine
 
-  ! TODO: fix zwsp.
-  recursive subroutine dwdtheta(t,k,P,invP,Lambda,out,wsp,lwsp) bind(C, name="dwdtheta_")
+  ! wsp at least k**2. zwsp at least k**2.
+  recursive subroutine dwdtheta(t,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp) bind(C, name="dwdtheta_")
     complex(c_double_complex) P, invP, Lambda, zwsp
-    integer(c_int) lwsp
-    dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), ipiv(k), zwsp(k**2)
+    integer(c_int) lwsp, lzwsp
+    dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp) !ipiv(k)
     target wsp
     real(c_double), pointer :: tmp(:,:)
-    external dgpadm
-    wsp(1:lwsp) = 0.0_c_double
+    !external dgpadm
     tmp(1:k,1:k) => wsp(1:(k**2))
+    tmp(:,:) = 0.0_c_double
     call d0phi(t, k, P, invP, Lambda, tmp, zwsp(1:(k**2)))
     !call dgpadm(10,k,-t,H,k,wsp,4*k*k+10+1,ipiv,iexph,ns,iflag)  ! Compute Phi
     !tmp(1:k,1:k) => wsp(iexph:)
@@ -634,22 +640,24 @@ contains
     enddo
   end subroutine
 
-  ! Make function for calculating the simple OU jacobian.
+  ! Function for calculating the simple OU jacobian.
   recursive subroutine ougejac(t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,djac,info) bind(C,name="ougejac_")
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) lwsp,lzwsp,eigavail
     dimension hts(k**2+k+(k*(k+1))/2), P(k,k), invP(k,k), &
          & Lambda(k), wsp(lwsp), zwsp(lzwsp), djac(k**2+k+(k*(k+1))/2, k**2+k+(k*(k+1))/2)
-    target zwsp, wsp, hts, phiwv
+    target zwsp, wsp, hts
     real(c_double), pointer :: H(:,:), theta(:), sig_x(:)
     H(1:k,1:k)           => hts
     theta(1:k)           => hts((k**2+1):)
     sig_x(1:((k*(k+1))/2)) => hts((k**2+k+1):)
     if (eigavail==0) then
+       ! wsp: 2*k^2, zwsp: 2*k^2
        call zeiginv(H,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info)
        if (info /= 0) return
     end if
-    djac = 0.0_c_double
+    djac(:,:) = 0.0_c_double
+    ! Output to wsp(1:k**4), zwsp: k^4+k^2+2 > 2*k^2.
     call dphida(t,k,P,invP,Lambda,wsp(1:k**4),zwsp,lzwsp)
     m=1
     do j=1,k**2
@@ -658,6 +666,13 @@ contains
           m=m+1
        enddo
     enddo
+!    do ixx=1,k**2+k+(k*(k+1))/2
+!       do iyy=1,k**2+k+(k*(k+1))/2
+!          if (ISNAN(djac(ixx,iyy))) print *, "NaN -- 1\n"
+!       enddo
+!    enddo
+    ! dwda: wsp(1:k**4) contains from previous step. out to wsp((k**4+1):(k**4+k*k**2)).
+    ! Therefore uses wsp at least of length k**4+k*k**2.
     call dwda(k,wsp(1:k**4),theta,wsp(k**4+1))
     m=1
     do j=1,k**2
@@ -666,7 +681,14 @@ contains
           m=m+1
        enddo
     enddo
-    call dwdtheta(t,k,P,invP,Lambda,wsp,wsp((k**2+1):),lwsp-k**2)
+!    do ixx=1,k**2+k+(k*(k+1))/2
+!       do iyy=1,k**2+k+(k*(k+1))/2
+!          if (ISNAN(djac(ixx,iyy))) print *, "NaN -- 1\n"
+!       enddo
+!    enddo
+    ! output to wsp(1:(k**2)), wsp at least of size k**2 so wsp bumped to 2*k**2.
+    ! zwsp at least k**2.
+    call dwdtheta(t,k,P,invP,Lambda,wsp,wsp((k**2+1):),lwsp-k**2, zwsp, lzwsp)
     m=1
     do j=1,k
        do i=1,k
@@ -674,7 +696,16 @@ contains
           m=m+1
        enddo
     enddo
-    call dlnunchol(sig_x,k,wsp(((k**2)+1):),lwsp-k**2,wsp(1:(k**2)),info)
+!    do ixx=1,k**2+k+(k*(k+1))/2
+!       do iyy=1,k**2+k+(k*(k+1))/2
+!          if (ISNAN(djac(ixx,iyy))) print *, "NaN -- 1\n"
+!       enddo
+!    enddo
+    ! Output to wsp(1:k**2), uses wsp(k**2+1:2*k**2). So wsp at least 2*k**2
+    call dlnunchol(sig_x,k,wsp(((k**2)+1):),k**2,wsp(1:(k**2)),info)
+    ! zwsp: k^4+2*k^2.
+    ! wsp(1:(k**2)) is input, Out to wsp((k**2+1):((k*(k+1))/2)*k**2). tmp of size 2*k^2 after that.
+    ! so wsp is at least k^2+((k*(k+1))/2)*k^2+2*k^2.
     call dvda(t,wsp(1:(k**2)),H,k,P,invP,Lambda,wsp((k**2+1):),wsp((k**2+((k*(k+1))/2)*k**2+1):),&
          & lwsp-(k**2+((k*(k+1))/2)*k**2),zwsp,lzwsp,1_c_int,info)
     if (info /= 0) return
@@ -685,6 +716,12 @@ contains
           m=m+1
        enddo
     enddo
+!    do ixx=1,k**2+k+(k*(k+1))/2
+!       do iyy=1,k**2+k+(k*(k+1))/2
+!          if (ISNAN(djac(ixx,iyy))) print *, "NaN -- 1\n"
+!       enddo
+!    enddo
+    ! output stored at first (k*(k+1)/2)^2 block. tmp needs 3*k^2 so it needs 3*k^2+(k*(k+1)/2)^2
     call dvdsigx(t,k,sig_x,P,invP,Lambda,wsp(1:((k*(k+1))/2)**2),&
          & wsp((((k*(k+1))/2)**2+1):),lwsp-((k*(k+1))/2)**2,zwsp,lzwsp,info)
     m=1
@@ -694,6 +731,11 @@ contains
           m=m+1
        enddo
     enddo
+!    do ixx=1,k**2+k+(k*(k+1))/2
+!       do iyy=1,k**2+k+(k*(k+1))/2
+!          if (ISNAN(djac(ixx,iyy))) print *, "NaN -- 1\n"
+!       enddo
+!    enddo
   end subroutine
 
   recursive subroutine dchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dchnunchol_")
@@ -910,7 +952,7 @@ contains
     call dprealsymhesschgbasis(zout, P, invP, k, k, zwsp(((k**6)+1):lzwsp), lzwsp-(k**6), out)
   end subroutine
 
-  ! wsp at least 4*(k^2), lzwsp at least k^4 + k^2
+  ! wsp at least 4*(k^2), lzwsp at least k^4 + 2*k^2
   recursive subroutine hvdadl (t,H,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name='hvdadl_')
     integer(c_int) lwsp, lzwsp
     complex(c_double_complex) P, invP, Lambda, zwsp
@@ -945,6 +987,7 @@ contains
        do i=j,k
           myPsi(i,:) = sig_x_unpk(:,j)
           myPsi(:,i) = myPsi(:,i) + myPsi(i,:)
+          ! zwsp at least k^4+2*k^2
           call dvda(t, myPsi, H, k, P, invP, Lambda, out(:,:,m), wsp((2*(k**2)+1):lwsp), lwsp-(2*(k**2)), &
                & zwsp, lzwsp, 1_c_int, info)
           if (info /= 0) return

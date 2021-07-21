@@ -3104,7 +3104,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			} else if (cmdstr[i] == 'c') { /* cholesky */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
-				if (isNull(Rjaclower)) { RUPROTERR(("Log-Cholesky 2nd-order chain rule required but Rjaclower is NULL")); }
+				if (isNull(Rjaclower)) { RUPROTERR(("Cholesky 2nd-order chain rule required but Rjaclower is NULL")); }
 				if (!chked_jaclower) {
 					SEXP Rdim_jaclower;
 					if (TYPEOF(Rjaclower) != REALSXP)
@@ -3195,7 +3195,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			} else if (cmdstr[i] == '0') { /* zero out */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
-				int nskip = k*(k+1)/2;
+				int nskip = k*k;
 				len_hesscurr_new = len_hesscurr - nskip;
 				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
 					goto MEMFAIL;
@@ -3218,11 +3218,10 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				double *hessouttmp_new;
 				int len_hesscurr_new;
 				int nskip;
-				nskip = (k*(k+1))/2;
+				nskip = k;
 				len_hesscurr_new = len_hesscurr - nskip;
 				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
 					goto MEMFAIL;
-				printf("58\n");
 				hesscpyskip_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &isquashed, &nskip);
 				free(hessouttmp);
 				hessouttmp   = hessouttmp_new;

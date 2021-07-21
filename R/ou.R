@@ -166,7 +166,8 @@ oujac = function (par, t, ...) {
   jac   = matrix(0,k*k+k+(k*(k+1L))%/%2L,k*k+k+(k*(k+1L))%/%2L); mode(jac)   = 'double'
   ougejacres = .C('ougejac_', t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,jac,info,  NAOK=T)
   if (ougejacres[[13]] != 0)   stop('Cannot eigen-decompose `H`')
-  ougejacres[[12]]
+  r = ougejacres[[12]]
+  r
 }
 
 
@@ -210,7 +211,7 @@ ouhess = function (par, t, ...) {
               k, par[((k*k)+k+1L):npar],
               P,invP,Lambda, array(0., c((k*(k+1L))%/%2L,k*k,(k*(k+1L))%/%2L)),
               double(4L*(k*k)), 4L*(k*k),
-              complex(k^4+k*k),as.integer(k^4)+k*k,
+              complex(k^4+2*k*k),as.integer(k^4)+2L*k*k,
               0L, NAOK=T)
     if (hvdadlres[[13]] != 0) stop('Error executing hvdadl_()')
     hv[1L:((k*(k+1L))%/%2L),(k*k+k+1L):npar,1L:(k*k)] =
