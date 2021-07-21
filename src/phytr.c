@@ -544,6 +544,8 @@ size_t getvwphi_listnum(SEXP Rlist, struct node *t, int kv, double **V, double *
         if (Phi)  *Phi =REAL(VECTOR_ELT(VwPhi, 2));
 	return 0;
 }
+
+/* get_VwPhi */
 size_t getvwphi_liststr(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	SEXP VwPhi;
 	(void)wsp; (void)lwsp;
@@ -554,6 +556,7 @@ size_t getvwphi_liststr(SEXP Rlist, struct node *t, int kv, double **V, double *
 	return 0;
 }
 
+/* get_VwPhi */
 /* Need to return -1 if failed */
 size_t getvwphi_vec(SEXP Rvec, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	double *par;
@@ -572,7 +575,8 @@ size_t getvwphi_vec(SEXP Rvec, struct node *t, int kv, double **V, double **w, d
 
 typedef size_t (*fn_node2siz)(struct node *t, int);
 size_t nd_node2siz (struct node *t, int kv) {
-	return (t->ndat.x ? (t->ndat.ku)*(t->ndat.ku) : 2+(t->ndat.ku)*(1+2*t->ndat.ku))*sizeof(double);
+	return (2*(t->ndat.ku)*(t->ndat.ku)+2*(t->ndat.ku)+(t->ndat.ku)*kv+2 )*sizeof(double);
+	//return (t->ndat.x ? (t->ndat.ku)*(t->ndat.ku) : 2+(t->ndat.ku)*(1+2*t->ndat.ku))*sizeof(double);
 }
 size_t h_node2siz (struct node *t, int kv) {
 	size_t nd;
@@ -651,6 +655,7 @@ void ndphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_g
 	for (p=t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, 0, &lwsp, &nd_node2siz);
 	lwsp += CGODBYTES(t->ndat.ku);
 	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
+	//if (! (wsp = malloc(80*1024*1024*8)))      goto MEMFAIL;
 	ZEROCGOD(wsp, c, gam, o, d, t->ndat.ku);
 	for (p = t->chd; p; p = p->nxtsb) {
 		dndgcgod(p, VwPhi_L, t->ndat.ku, c, gam, o, d, get_VwPhi, &c_ndtcgod, &c_ndmerg, wsp, CGODBYTES(t->ndat.ku), lwsp, &info);
@@ -687,6 +692,7 @@ void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 	sumnode_siz(t, t->ndat.ku, &lwsp, &difftmp_node2siz);
 	lwsp += CGODBYTES(t->ndat.ku);
 	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
+	//if (! (wsp = malloc(80*1024*1024*8)))      goto MEMFAIL;
 	swsp += difftmp(t, wsp, 0);
 	ZEROCGOD((char*)wsp+swsp, c, gam, o, d, t->ndat.ku);
 	swsp += CGODBYTES(t->ndat.ku);
@@ -767,6 +773,7 @@ MEMFAIL:
 }
 
 
+/* DOUBLE CHECK THIS! */
 void mkdiffbk(struct diffbk *p, int kr, int kb) { /* kr is dim of root and kb the parent. */
 	double *tmp;
 	if(! (tmp = malloc((kr*kb + kb*kb + kb)*sizeof(double))))  goto MEMFAIL;
@@ -982,7 +989,6 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 DOWNDESC:
 				/* HESS_WRITE */
 				if (dir) {
-					//printf("NODE_ID: %d-%d  (B)\n", curdesc.n->id+1, p->id+1);
 					tntmdir_(&(t->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1_ch,
 						 curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
 						 curdesc.n->ndat.dgamdphi, x0, extrmem, dir, &ndir, &(t->u.rbk.nparam), &(p->u.hnbk.Phi), &(p->u.hnbk.V),
@@ -1184,6 +1190,7 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 		   Everybody is assuming this nowadays. But don't use something like PGI's -Mipa=inline etc.
 		   to mess with the libc binary...  */
 		if (! (wsp_a = malloc(lwsp_a))) return; /* Leaks tiny amount of memory. */
+		memset(wsp_a, 0, lwsp_a);
 		stalpha  =wsp_a;
 		hessmem  =(void*)((char*)wsp_a+swsp_a); swsp_a +=lhessmem; /* Skip swsp_a to leave room for the stack. */
 		pushback =(void*)((char*)wsp_a+swsp_a); swsp_a +=lpushback;
@@ -1360,6 +1367,7 @@ int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk,
 	dfqk1_ch = NULL;
 	dfqk1new_ch = NULL;
 	if (!(stglob = malloc(sizeof(*stglob) * 50*1024*1024))) goto MEMFAIL;
+	memset(stglob, 0, sizeof(*stglob) * 50*1024*1024);
 	curglob.kv = parent->ndat.ku;
 	curglob.m = m; curglob.gbk = gbk;
 	stglob[0].m = parent;	/* Artificially push the parent into the stack, since the parent here must be a direct child
@@ -1375,7 +1383,6 @@ DOWNGLOB:
 	if (! (dfqk1_ch    = calloc(DFQKSIZ,1)))                          goto MEMFAIL;
 	if (! (dfqk1new_ch = calloc(DFQKSIZ,1)))                          goto MEMFAIL;
 	dzero(K, (curglob.kv)*(curglob.kv));
-	
 	if (!allocdfqk(rt->ndat.ku, curglob.kv, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, dfqk1_ch)) goto MEMFAIL;
 	/* HESS_WRITE */
 	if (dir) {
@@ -2370,10 +2377,13 @@ SEXP Rcurvifyhess(SEXP RH, SEXP Rpar, SEXP tr, SEXP fnh, SEXP env) {
 	/* R caller should check the type, mode and dimension of RH, tr and so on. */
 	SEXP Rnodeidcell, R_fcall;
 	double *wsp;
+	int *nodeid;
 	int npar;
 	struct node *t, *p;
 	t = (struct node *) R_ExternalPtrAddr(tr);
 	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
+	nodeid = INTEGER(Rnodeidcell);
+	*nodeid = -1;
 	R_fcall     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
 	protdpth = 2;
 	npar = INTEGER(getAttrib(RH, R_DimSymbol))[0];
@@ -2639,7 +2649,7 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
 	/* Allocate the output according to len_out */
 	Rout = PROTECT(allocVector(REALSXP, len_out));
 	out  = REAL(Rout);
-	for (i = 0; i<len_out; ++i) out[i] = -1000000.0;
+	dzero(out, len_out);
 	/* Now parse the string. */
 	i = 0;
 	iout = 0;
@@ -3207,10 +3217,12 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			if (cmdstr[i] == '0') { /* zero out */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
-				int nskip = k*(k+1)/2;
+				int nskip;
+				nskip = (k*(k+1))/2;
 				len_hesscurr_new = len_hesscurr - nskip;
 				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
 					goto MEMFAIL;
+				printf("58\n");
 				hesscpyskip_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &isquashed, &nskip);
 				free(hessouttmp);
 				hessouttmp   = hessouttmp_new;

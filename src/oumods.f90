@@ -546,7 +546,7 @@ contains
     external dtpttr
     UijLt(1:k,1:k)      => wsp(1:)
     sig_x_unpk(1:k,1:k) => wsp((k**2+1):)
-    sig_x_unpk = 0.0_c_double
+    sig_x_unpk(1:k,1:k) = 0.0_c_double
     !
     ! COMPILER BUG IN OPEN64-C + GFORTRAN!! If I print out sig_x everything works.
     ! If I don't then NaN pops up out of nowhere. I don't even know where the NaN
@@ -912,17 +912,17 @@ contains
 
   ! wsp at least 4*(k^2), lzwsp at least k^4 + k^2
   recursive subroutine hvdadl (t,H,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name='hvdadl_')
-    integer(c_int) lwsp, lzwsp, eigavail
+    integer(c_int) lwsp, lzwsp
     complex(c_double_complex) P, invP, Lambda, zwsp
-    dimension sig_x((k*(k+1))/2), H(k,k), P(k,k), invP(k,k), Lambda(k), out((k*(k+1))/2,k**2,(k*(k+1))/2),&
+    dimension sig_x((k*(k+1))/2), H(k,k), P(k,k), invP(k,k), Lambda(k), out((k*(k+1))/2,k*k,(k*(k+1))/2),&
          & wsp(lwsp), zwsp(lzwsp)
     target :: wsp
     real(c_double), pointer :: myPsi(:,:), sig_x_unpk(:,:)
     external dtpttr
     myPsi(1:k,1:k)      => wsp(1:(k**2))
-    myPsi = 0.0_c_double
+    myPsi(:,:) = 0.0_c_double
     sig_x_unpk(1:k,1:k) => wsp((k**2+1):)
-    sig_x_unpk = 0.0_c_double
+    sig_x_unpk(:,:) = 0.0_c_double
     !
     ! COMPILER BUG IN OPEN64-C + GFORTRAN!! If I print out sig_x everything works.
     ! If I don't then NaN pops up out of nowhere. I don't even know where the NaN
@@ -1025,7 +1025,7 @@ contains
 
   ! zwsp at least 2*k^2, wsp at least 4*(k^2)
   recursive subroutine hvhl(t, k, sig_x, P, invP, Lambda, wsp, lwsp, zwsp, lzwsp, out) bind(C,name="hvhl_")
-    integer lwsp, lzwsp
+    integer(c_int) lwsp, lzwsp
     complex(c_double_complex) zwsp, P, invP, Lambda
     dimension sig_x((k*(k+1))/2), out((k*(k+1))/2,(k*(k+1))/2,(k*(k+1))/2), P(k,k), invP(k,k), Lambda(k), &
          & wsp(lwsp), zwsp(lzwsp)
@@ -1046,7 +1046,7 @@ contains
     iij = 1
     do j=1,k
        do i=j,k
-          UijLt = 0.0_c_double
+          UijLt(:,:) = 0.0_c_double
           UijLt(i,:) = sig_x_unpk(:,j)
           UijLt(:,i) = UijLt(:,i) + UijLt(i,:)
           imn = 1

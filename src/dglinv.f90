@@ -310,15 +310,18 @@ contains
   end subroutine
 
   recursive subroutine tcgodintern (V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)   bind(C, name="tcgodintern_")
-    dimension V(ku, ku), w(ku), x(ku), Phi(ku, kv), gam(kv), o(kv, kv), b(ku), solV(ku, ku), &
-         & Lb(ku)
-    external dpotrf, dpotri
-
+    dimension V(ku, ku), w(ku), x(ku), Phi(ku, kv), gam(kv), o(kv, kv), b(ku), solV(ku, ku)
+    allocatable :: Lb(:), tmp(:,:)
+    external dpotrf, dpotri, dgemv
+    allocate(Lb(ku), tmp(ku,kv))
     solV = V
     b = x - w
     call dpotrf( 'U', ku, solV, ku, info )
     if (info /= 0) goto 90
-    d = d + sum((/(log(solV(j,j)), j=1, ku)/)*2.0_c_double)
+    !!d = d + sum((/(log(solV(j,j)), j=1, ku)/)*2.0_c_double)
+    do i = 1,ku
+       d = d+2.0_c_double*log(solV(i,i))
+    enddo
     !! Now d == logdet(V)
     
     call dpotri( 'U', ku, solV, ku, info )
@@ -329,10 +332,16 @@ contains
        enddo
     enddo
     
-    Lb = matmul(solV, b)
-    c = c + dot_product(b, Lb)
-    gam = gam + matmul(transpose(Phi), Lb)
-    o = o + matmul(transpose(Phi), matmul(solV, Phi))
+    call dgemv('N',ku,ku,1.0_c_double,solV,ku,b,1_c_int,0.0_c_double,Lb,1_c_int)
+    c = c + ddot(ku,b,1_c_int,Lb,1_c_int)
+!    Lb = matmul(solV, b)
+!    c = c + dot_product(b, Lb)
+!    gam = gam + matmul(transpose(Phi), Lb)
+!    o = o + matmul(transpose(Phi), matmul(solV, Phi))
+    call dgemv('T',ku,kv,1.0_c_double,Phi,ku,Lb,1_c_int,1.0_c_double,gam,1_c_int)
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,solV,ku,Phi,ku,0.0_c_double,tmp,ku)
+    call dgemm('T','N',kv,kv,ku,1.0_c_double,Phi,ku,tmp,ku,1.0_c_double,o,kv)
+    deallocate(Lb, tmp)
     info = 0
     return
 
@@ -350,10 +359,13 @@ contains
     dimension V(ku, ku), w(ku), x(ku), Phi(ku, kv), gam(kv), o(kv, kv), &
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
-         & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku), &
-         & b(ku), solV(ku, ku)
+         & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku)
+         
+    allocatable ::solV(:,:), b(:)
+    allocate(solV(ku, ku), b(ku))
     call htcgod (V, w, Phi, x, kv, ku, c, gam, o, d, solV, b, &
          dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)
+    deallocate(solV, b)
   end subroutine
   recursive subroutine htcgod (V, w, Phi, x, kv, ku, c, gam, o, d, solV, b, &
        dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="htcgod_")
@@ -361,7 +373,9 @@ contains
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
          & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku), &
-         & dldvev(ku, ku, ku, ku), b(ku), solV(ku, ku), sco(ku, ku)
+         & solV(ku, ku), b(ku)
+    allocatable :: dldvev(:,:,:,:), sco(:,:)
+    allocate(dldvev(ku, ku, ku, ku), sco(ku, ku))
     call tcgodintern(V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)
     call ndinv(solV, ku, dldvev)
     call dcdv(dldvev, b, ku, dcdvev)
@@ -382,6 +396,7 @@ contains
     call dodv(dldvev, Phi, sco, kv, ku, dodvev)
     call dodphi(sco, solV, Phi, kv, ku, dodphiev)
     dddvev = solV
+    deallocate(dldvev, sco)
   end subroutine
 
 
@@ -467,14 +482,20 @@ contains
     !!  1. If u is a tip, then dldVev[k,l,i,j] == - d(inv(Vu)[k,l])/d(Vu[j,i]).
     !!     Notice the negative and the transpose at denominator.
     !!  2. If u is non-tip, then dldVev[k,l,i,j] == d(Lambda[k,l])/d(Vu[i,j]).
-    !!
     intent(in) :: dLdVev, Phi_u, ScOmega, b_u, kv, ku;  intent(out) :: out
     dimension dLdVev(ku,ku,ku,ku), Phi_u(ku,kv), ScOmega(ku,ku), b_u(ku), out(kv,ku,ku)
+    external dgemm,dgemv
+    allocatable :: tmp1(:,:), tmp2(:)
+    allocate(tmp1(ku,ku),tmp2(ku))
     do j=1,ku
        do i=1,ku
-          out(:,i,j) = - matmul(transpose(Phi_u), matmul(transpose(matmul(dLdVev(:,:,i,j), ScOmega)), b_u))
+!          out(:,i,j) = - matmul(transpose(Phi_u), matmul(transpose(matmul(dLdVev(:,:,i,j), ScOmega)), b_u))
+          call dgemm('N','N',ku,ku,ku,1.0_c_double,dLdVev(:,:,i,j),ku,ScOmega,ku,0.0_c_double,tmp1,ku)
+          call dgemv('T',ku,ku,1.0_c_double,tmp1,ku,b_u,1_c_int,0.0_c_double,tmp2,1_c_int)
+          call dgemv('T',ku,kv,-1.0_c_double,Phi_u,ku,tmp2,1_c_int,0.0_c_double,out(:,i,j),1_c_int)
        enddo
     enddo
+    deallocate(tmp1,tmp2)
   end subroutine
 
   recursive subroutine dcdw (H_u, b_u, ku, out)  bind(C, name="dcdw_")
@@ -1701,6 +1722,7 @@ contains
     real(c_double)    :: dF1(knv,kr), dq1(knv), dk1(knv,knv), f1n(knv,kr), q1n(knv), &
                        & dodtn(knv,knv), dgamdtn(knv), x0(kr), d2L, ho1(kr,kr), hgam1(kr), hc1, hd1
     real(c_double)    :: wsp1(knv,kr)
+    external dgemm, dgemv
     call dgemm('N','N', knv,kr,knv,1.0_c_double,dodtn,knv,f1n,knv,0.0_c_double,wsp1,knv)
     call dgemm('T','N', kr,kr,knv,1.0_c_double,dF1,knv,wsp1,knv,0.0_c_double,ho1,kr)
     call dgemm('N','N', knv,kr,knv,1.0_c_double,dodtn,knv,dF1,knv,0.0_c_double,wsp1,knv)
