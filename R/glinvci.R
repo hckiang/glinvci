@@ -246,12 +246,8 @@ lik = function (mod, ...) UseMethod('lik')
 lik.glinv_gauss = function (mod, par=NULL, ...) {
   if (is.null(par)) {
     mod
-    function (par) {
-      .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
-    }
-  } else {
-    .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
-  }
+    function (par)  .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
+  } else            .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
 }
 
 #' Compute the log-likelihood gradients of GLInv models
@@ -275,18 +271,17 @@ grad = function (mod, ...) UseMethod('grad')
 #' @param ...    Not used.
 #' @export
 grad.glinv_gauss = function (mod, par=NULL, lik=F, ...) {
-  if (is.null(par)) {
+  if (is.null(par))
     function (par) grad_glinv_gauss_(mod=mod, par=par, lik=lik)
-  } else {
+  else
     grad_glinv_gauss_(mod=mod, par=par, lik=lik)
-  }
 }
 
 grad_glinv_gauss_ = function (mod, par, lik=F, ...) {
   l = .Call(Rdphylik, mod$ctree, par, mod$x0, mod$gaussdim)
   g = c(.Call(Rextractderivvec, mod$ctree))
   if (!lik) g
-  else list(lik = l, grad = g)
+  else      list(lik = l, grad = g)
 }
 
 #' Compute the log-likelihood Hessian of GLInv models
@@ -315,12 +310,8 @@ hess = function (mod, ...) UseMethod('hess')
 hess.glinv_gauss = function (mod, par=NULL, lik=F, grad=F, directions=NULL, ...) {
   mod
   if (is.null(par)) {
-    function (par) {
-      hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
-    }
-  } else {
-    hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
-  }
+    function (par) hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
+  } else           hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
 }
 
 hess_glinv_gauss_ = function (mod, par, lik=F, grad=F, directions=NULL, ...) {
@@ -730,6 +721,7 @@ hess.glinv = function (mod,
       })
       r
     }
+    
     ## lin is directly modified in the C code after this.
     .Call(Rcurvifyhess, lin, par, mod$rawmod$ctree, curvifier, environment())
     for (i in seq_along(mod$parhess))

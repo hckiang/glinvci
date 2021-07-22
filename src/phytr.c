@@ -2339,14 +2339,16 @@ SEXP Rchkusrhess(SEXP Robj, SEXP Rnparglobal, SEXP Rnparregime, SEXP Rnid, SEXP 
 	return R_NilValue;
 }
 
-void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP Rcallpair, SEXP Rnodeidcell, SEXP env,
-	double *wsp) {
-	SEXP Rans, RVans, Rwans, RPhians;
+void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP fnh, SEXP env,
+		 double *wsp, SEXP Rpar) {
+	SEXP Rans, RVans, Rwans, RPhians, Rnodeidcell, Rf_call;
 	struct node *p;
 	int *nodeid;
+	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
 	nodeid = INTEGER(Rnodeidcell);
 	*nodeid = (t->id)+1;
-	Rans = eval(Rcallpair, env); /* Trusted because the user function was wrapped and checked */
+	Rf_call     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
+	Rans = eval(Rf_call, env); /* Trusted because the user function was wrapped and checked */
 	RVans = Rlistelem(Rans, "V");
 	Rwans = Rlistelem(Rans, "w");
 	RPhians = Rlistelem(Rans, "Phi");
@@ -2355,7 +2357,8 @@ void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP Rcallpair, SE
 			t->ndat.dlikdv, t->ndat.dlikdw, t->ndat.dlikdphi,
 			wsp);
 	for (p = t->chd; p; p = p->nxtsb)
-		curvifyhess(H, p, npar, t->ndat.ku, Rcallpair, Rnodeidcell, env, wsp);
+		curvifyhess(H, p, npar, t->ndat.ku, fnh, env, wsp, Rpar);
+	UNPROTECT(2);
 }
 
 /*
@@ -2375,29 +2378,26 @@ void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP Rcallpair, SE
 */
 SEXP Rcurvifyhess(SEXP RH, SEXP Rpar, SEXP tr, SEXP fnh, SEXP env) {
 	/* R caller should check the type, mode and dimension of RH, tr and so on. */
-	SEXP Rnodeidcell, R_fcall;
+//	SEXP Rnodeidcell, R_fcall;
 	double *wsp;
-	int *nodeid;
+//	int *nodeid;
 	int npar;
 	struct node *t, *p;
 	t = (struct node *) R_ExternalPtrAddr(tr);
-	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
-	nodeid = INTEGER(Rnodeidcell);
-	*nodeid = -1;
-	R_fcall     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
-	protdpth = 2;
+//	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
+//	nodeid = INTEGER(Rnodeidcell);
+//	*nodeid = -1;
+//	R_fcall     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
+//	protdpth = 2;
 	npar = INTEGER(getAttrib(RH, R_DimSymbol))[0];
 	wsp = malloc((2 * npar * npar + 1) * sizeof(double));
 	if (!wsp) {
-		UNPROTECT(2);
-		protdpth = -1;
 		error("Rcurvifyhess(): failed in malloc()");
 	}
 	dzero(wsp, 2*npar*npar+1);
 	for (p = t->chd; p; p = p->nxtsb)
-		curvifyhess(REAL(RH), p, npar, t->ndat.ku, R_fcall, Rnodeidcell, env, wsp);
+		curvifyhess(REAL(RH), p, npar, t->ndat.ku, fnh, env, wsp, Rpar);
 	free(wsp);
-	UNPROTECT(2);
 	protdpth = -1;
 	return R_NilValue;
 }

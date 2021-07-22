@@ -400,8 +400,7 @@ dou_logdiagH = function (jacfn) {
   function (par, ...) {
     mode(par) = 'double'
     k = as.integer(sqrt(25/4+2*length(par)) - 5/2)
-    r = .Call(Rpostjacrestrict, 'MeVkLk', par, jacfn(.Call(Rparamrestrict, 'MeVkLk', par, k), ...), k)
-    r
+    .Call(Rpostjacrestrict, 'MeVkLk', par, jacfn(.Call(Rparamrestrict, 'MeVkLk', par, k), ...), k)
   }
 }
 
@@ -419,9 +418,10 @@ hou_logdiagH = function (hessfn) {
     pstart = INFO__$mod$parsegments[INFO__$parfn_id,'start']
     phid = dim(H[['Phi']])[1]
     wd   = dim(H[['w']])[1]
-    list(V   = .Call(Rposthessrestrict, 'MeVkLk', par, H[['V']],   k, NULL, NULL, Jthis, gstart+phid+wd-1L, pstart-1L),
+    r =list(V   = .Call(Rposthessrestrict, 'MeVkLk', par, H[['V']],   k, NULL, NULL, Jthis, gstart+phid+wd-1L, pstart-1L),
          w   = .Call(Rposthessrestrict, 'MeVkLk', par, H[['w']],   k, NULL, NULL, Jthis, gstart+phid-1L,    pstart-1L),
          Phi = .Call(Rposthessrestrict, 'MeVkLk', par, H[['Phi']], k, NULL, NULL, Jthis, gstart-1L,         pstart-1L))
+    r
   }
 }
 

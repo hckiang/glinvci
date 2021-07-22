@@ -228,6 +228,7 @@ contains
     complex(c_double_complex), pointer :: ztmp(:,:), ztmp2(:,:)
     ztmp(1:k,1:k)  => zwsp(1:)
     ztmp2(1:k,1:k) => zwsp((k**2+1):)
+    ztmp = cmplx(0._c_double, 0._c_double, kind(1._c_double))
     do j=1,k
        do i=1,k
           call zI0(t,-(Lambda(i)+Lambda(j)),1.0_c_double,0.0_c_double,ztmp(i,j))
@@ -464,6 +465,7 @@ contains
     wgt(1:(k**2))           => zwsp(((k**4)+k**2+1):)
     didx = 0
     PsiB = matmul(invP,matmul(Psi,P))
+    c = cmplx(0._c_double, 0._c_double, kind(1._c_double))
     do n = 1,k
        do m = 1,k
           X(:,:) = cmplx(0._c_double, 0._c_double, kind(1._c_double))
@@ -521,6 +523,7 @@ contains
        do a1 = 1,k
           X = cmplx(0._c_double, 0._c_double, kind(1._c_double))
           z = Lambda(a1) - Lambda(a2)
+          c = cmplx(0._c_double, 0._c_double, kind(1._c_double))
           if (mod2small(z) == 1) then
              do j = 1,k
                 call zI1(t, -Lambda(a1)-Lambda(j), 1.0_c_double, 0.0_c_double, c)
