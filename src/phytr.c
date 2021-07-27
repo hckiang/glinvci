@@ -143,6 +143,8 @@ static int protdpth = -1;    /* Keeps track of the R GC PROTECT() depth. */
   We store the Hessian as a uplo='L' format. It's simply a storage scheme and
   users won't see this at all.
 */
+extern void hessdiag2ltri_(double *Hnew, int *nnew, double *Hold, int *nold, int *m, int *k, int *istart);
+extern void diag2ltri_(double *d, int *k, double *out);
 extern void glinvtestfloatIEEE01_(double *x, double*out);
 extern void hchnlndiag_(double *Hnew, int *nnew, double *Hold, int *nold, double *par,
 			double *djacthis, int *ildjac, int *joffset, int *m, int *istart, int *k);
@@ -1826,8 +1828,6 @@ SEXP Rndphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
 	protdpth = 1;
-	/* TODO: ensure PROTECT stack balance when ndphylik() calls longjmp(). R seems to be doing
-	         some magic to the PROTECT stack (?) but just in case... */
 	ndphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t, VwPhi_L));
 	UNPROTECT(1);
 	protdpth = -1;
@@ -2415,205 +2415,7 @@ SEXP Rsylgecpy(SEXP Rv, SEXP Rk) {
 	return Rout;
 }
 
-SEXP Runchol(SEXP Rv, SEXP Rk) {
-	double *wsp;
-	int lwsp, info, *k;
-	SEXP Rout;
-	k = INTEGER(Rk);
-	info = 0;
-	lwsp = (*k)*(*k);
-	if (!(wsp = malloc(lwsp*sizeof(double)))) error("Failed to allocate memory");
-	Rout = PROTECT(allocVector(REALSXP, (*k)*(*k)));
-	unchol_(REAL(Rv), k, wsp, &lwsp, REAL(Rout), &info);
-	if (info) error("Runchol: failed to revert logged-diagonal cholesky. INFO=%d", info);
-	free(wsp);
-	UNPROTECT(1);
-	return Rout;
-}
-
-SEXP Rlnunchol(SEXP Rv, SEXP Rk) {
-	double *wsp;
-	int lwsp, info, *k;
-	SEXP Rout;
-	k = INTEGER(Rk);
-	info = 0;
-	lwsp = (*k)*(*k);
-	if (!(wsp = malloc(lwsp*sizeof(double)))) error("Failed to allocate memory");
-	Rout = PROTECT(allocVector(REALSXP, (*k)*(*k)));
-	lnunchol_(REAL(Rv), k, wsp, &lwsp, REAL(Rout), &info);
-	if (info) error("Rlnunchol: failed to revert logged-diagonal cholesky. INFO=%d", info);
-	free(wsp);
-	UNPROTECT(1);
-	return Rout;
-}
-
-SEXP Rlnchnunchol(SEXP RDFDH, SEXP RL, SEXP Rm, SEXP Rk) {
-	SEXP Rout, Rdim;
-	int *m, *k, *dim;
-	m = INTEGER(Rm);
-	k = INTEGER(Rk);
-	Rout = PROTECT(allocVector(REALSXP, (*m)*((*k)*((*k)+1))/2));
-	Rdim = PROTECT(allocVector(INTSXP, 2));
-	dim = INTEGER(Rdim);
-	dim[0] = *m;
-	dim[1] = ((*k)*((*k)+1))/2;
-	setAttrib(Rout, R_DimSymbol, Rdim);
-	dzero(REAL(Rout), (*m)*((*k)*((*k)+1))/2);
-	dlnchnunchol_(REAL(RDFDH), REAL(RL), m, k, REAL(Rout));
-	UNPROTECT(2);
-	return Rout;
-}
-
-SEXP Rchnunchol(SEXP RDFDH, SEXP RL, SEXP Rm, SEXP Rk) {
-	SEXP Rout, Rdim;
-	int *m, *k, *dim;
-	m	= INTEGER(Rm);
-	k	= INTEGER(Rk);
-	Rout	= PROTECT(allocVector(REALSXP, (*m)*((*k)*((*k)+1))/2));
-	Rdim	= PROTECT(allocVector(INTSXP, 2));
-	dim	= INTEGER(Rdim);
-	dim[0]	= *m;
-	dim[1]	= ((*k)*((*k)+1))/2;
-	setAttrib(Rout, R_DimSymbol, Rdim);
-	dzero(REAL(Rout), (*m)*((*k)*((*k)+1))/2);
-	dchnunchol_(REAL(RDFDH), REAL(RL), m, k, REAL(Rout));
-	UNPROTECT(2);
-	return Rout;
-}
-
-SEXP Rhouchnsymh(SEXP Rhess, SEXP Rk) {
-	SEXP Rout, Rorigdim, Rnewdim;
-	int *origdim, *newdim, *k, newlen, ithis;
-	double *out;
-	Rorigdim	= getAttrib(Rhess, R_DimSymbol);
-	origdim		= INTEGER(Rorigdim);
-	k		= INTEGER(Rk);
-	Rnewdim		= PROTECT(allocVector(INTSXP, 3));
-	newdim		= INTEGER(Rnewdim);
-	newdim[0]	= origdim[0];
-	newdim[1]	= origdim[1]-(*k)*(*k)+(((*k)*((*k)+1))/2);
-	newdim[2]	= newdim[1];
-	newlen		= newdim[0]*newdim[1]*newdim[2];
-	Rout		= PROTECT(allocVector(REALSXP, newlen));
-	out		= REAL(Rout);
-	dzero(out, newlen);
-	ithis = 0;
-	houchnsymh_(REAL(Rhess), newdim, k, origdim+1, &ithis, out);
-	setAttrib(Rout, R_DimSymbol, Rnewdim);
-	UNPROTECT(2);
-	return Rout;
-}
-
-SEXP hougespdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset, int ln) {
-	SEXP Rout, Rorigdim, Rnewdim, Rjacdim;
-	int *origdim, *newdim, *k,  npar_new, newlen, *ldjac, ithis;
-	double *out;
-	Rjacdim         = getAttrib(Rjacres, R_DimSymbol);
-	ldjac           = INTEGER(Rjacdim);
-	Rorigdim	= getAttrib(Rhess, R_DimSymbol);
-	origdim		= INTEGER(Rorigdim);
-	k		= INTEGER(Rk);
-	Rnewdim		= PROTECT(allocVector(INTSXP, 3));
-	npar_new        = length(Rpar);
-	newdim		= INTEGER(Rnewdim);
-	newdim[0]	= origdim[0];
-	newdim[1]	= npar_new;
-	newdim[2]	= newdim[1];
-	newlen		= newdim[0]*newdim[1]*newdim[2];
-	Rout		= PROTECT(allocVector(REALSXP, newlen));
-	out		= REAL(Rout);
-	dzero(out, newlen);
-	ithis           = 0;
-	if (ln) houlnspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
-			   newdim, k, origdim+1, &npar_new, &ithis, out);
-	else {
-		houspdh_(REAL(Rhess), REAL(Rpar), REAL(Rjacres), ldjac, INTEGER(Rjoffset),
-			 newdim, k, origdim+1, &npar_new, &ithis, out);
-	}
-	setAttrib(Rout, R_DimSymbol, Rnewdim);
-	UNPROTECT(2);
-	return Rout;
-}
-SEXP Rhouspdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset) {
-	return hougespdh(Rhess, Rk, Rpar, Rjacres, Rjoffset, 0);
-}
-SEXP Rhoulnspdh(SEXP Rhess, SEXP Rk, SEXP Rpar, SEXP Rjacres, SEXP Rjoffset) {
-	return hougespdh(Rhess, Rk, Rpar, Rjacres, Rjoffset, 1);
-}
-
-
-/* Einstein summation ijk,j->ijk */
-SEXP Reinsumijk_j_2_ijk(SEXP RX, SEXP RY) {
-	SEXP RdimX, Rres, Rdim_res;
-	double *X, *Y, *res;
-	int i,j,k,  nx1,nx2,nx3,ny, *dim_res;
-	RdimX = getAttrib(RX, R_DimSymbol);
-	nx1 = INTEGER(RdimX)[0];
-	nx2 = INTEGER(RdimX)[1];
-	nx3 = INTEGER(RdimX)[2];
-	ny  = length(RY);
-	if (nx2 != ny) {
-		error("Reinsumijk_j_2_ijk: Dimensionality mismatch. Cannot do Einstein summation.");
-	}
-	X = REAL(RX);
-	Y = REAL(RY);
-	Rres    = PROTECT(allocVector(REALSXP, nx1*nx2*nx3));
-	Rdim_res = PROTECT(allocVector(INTSXP, 3));
-	res = REAL(Rres);
-	dim_res = INTEGER(Rdim_res);
-	dim_res[0] = nx1;
-	dim_res[1] = nx2;
-	dim_res[2] = nx3;
-	setAttrib(Rres, R_DimSymbol, Rdim_res);
-	dzero(res, nx1*nx2*nx3);
-	for (k=0;k<nx3;++k) {
-		for(i=0;i<nx1;++i) {
-			for (j=0;j<nx2;++j) {
-				res[i+j*nx1+k*nx1*nx2] = X[i+j*nx1+k*nx1*nx2] * Y[j];
-			}
-		}
-	}
-	UNPROTECT(2);
-	return Rres;
-}
-
-
-/* Einstein summation ijk,k->ijk */
-SEXP Reinsumijk_k_2_ijk(SEXP RX, SEXP RY) {
-	SEXP RdimX, Rres, Rdim_res;
-	double *X, *Y, *res;
-	int i,j,k,  nx1,nx2,nx3,ny, *dim_res;
-	RdimX = getAttrib(RX, R_DimSymbol);
-	nx1 = INTEGER(RdimX)[0];
-	nx2 = INTEGER(RdimX)[1];
-	nx3 = INTEGER(RdimX)[2];
-	ny  = length(RY);
-	if (nx3 != ny) {
-		error("Reinsumijk_j_2_ijk: Dimensionality mismatch. Cannot do Einstein summation.");
-	}
-	X = REAL(RX);
-	Y = REAL(RY);
-	Rres    = PROTECT(allocVector(REALSXP, nx1*nx2*nx3));
-	Rdim_res = PROTECT(allocVector(INTSXP, 3));
-	res = REAL(Rres);
-	dim_res = INTEGER(Rdim_res);
-	dim_res[0] = nx1;
-	dim_res[1] = nx2;
-	dim_res[2] = nx3;
-	setAttrib(Rres, R_DimSymbol, Rdim_res);
-	dzero(res, nx1*nx2*nx3);
-	for (k=0;k<nx3;++k) {
-		for (j=0;j<nx2;++j) {
-			for(i=0;i<nx1;++i) {
-				res[i+j*nx1+k*nx1*nx2] = X[i+j*nx1+k*nx1*nx2] * Y[k];
-			}
-		}
-	}
-	UNPROTECT(2);
-	return Rres;
-}
-
-SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
+SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 	SEXP Rout;
 	const char *cmdstr;
 	double *in, *out;
@@ -2625,6 +2427,9 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
            (5: Expects input type argument.) */
 	int curstate = 1, i, iout, iin;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
+	int fixed_ptr = 0;
+	int fixed_chked = 0;
+	
 	cmdstr = CHAR(STRING_ELT(Rcmdstr,0));
 	in     = REAL(Rpar);
 	len_par= length(Rpar);
@@ -2736,6 +2541,33 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
 			} else if (cmdstr[i] == '0') { /* zero out */
 				for (int j=0; j<k*k; ++j) out[iout++] = 0.0;
 				curstate = 1;
+			} else if (cmdstr[i] == 'f') { /* fixed, but non-zero */
+				double *fixed;
+				SEXP Rfixed_elt;
+				if (!fixed_chked) {
+					fixed_chked = 1;
+					if (TYPEOF(Rfixedpart) != VECSXP) {
+						UNPROTECT(1);
+						error("Fixed parameter parts should be a list of double precision vectors");
+					}
+				}
+				if (fixed_ptr >= length(Rfixedpart)) {
+					UNPROTECT(1);
+					error("The list of fixed parameters is too short");
+				}
+				Rfixed_elt = VECTOR_ELT(Rfixedpart, fixed_ptr++);
+				if (length(Rfixed_elt) != k*k) {
+					UNPROTECT(1);
+					error("The length of the %d-th fixed parameter part is incorrect: should be %d but I've got a vector of length %d",
+					      fixed_ptr, k*k, length(Rfixed_elt));
+				}
+				if (TYPEOF(Rfixed_elt) != REALSXP) {
+					UNPROTECT(1);
+					error("The %d-th fixed parameter is not a double precision numeric vector", fixed_ptr);
+				}
+				fixed = REAL(Rfixed_elt);
+				for (int j=0; j<k*k; ++j) out[iout++] = fixed[j];
+				curstate = 1;
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy the entire kxk matrix */
 				if (iin+k*k > len_par) {
@@ -2752,6 +2584,32 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
 		case 3: /* Expects input argument for 'V'; */
 			if (cmdstr[i] == '0') { /* zero out */
 				for (int j=0; j<k; ++j) out[iout++] = 0.0;
+				curstate = 1;
+			} else if (cmdstr[i] == 'f') {
+				double *fixed;
+				SEXP Rfixed_elt;
+				if (!fixed_chked) {
+					fixed_chked = 1;
+					if (TYPEOF(Rfixedpart) != VECSXP) {
+						UNPROTECT(1);
+						error("Fixed parameter parts should be a list of double precision vectors");
+					}
+				}
+				if (fixed_ptr >= length(Rfixedpart)) {
+					UNPROTECT(1);
+					error("The list of fixed parameters is too short");
+				}
+				Rfixed_elt = VECTOR_ELT(Rfixedpart, fixed_ptr++);
+				if (length(Rfixed_elt) != k) {
+					UNPROTECT(1);
+					error("The length of the %d-th fixed parameter part is incorrect: should be %d but I've got a vector of length %d", fixed_ptr, k, length(Rfixed_elt));
+				}
+				if (TYPEOF(Rfixed_elt) != REALSXP) {
+					UNPROTECT(1);
+					error("The %d-th fixed parameter is not a double precision numeric vector", fixed_ptr);
+				}
+				fixed = REAL(Rfixed_elt);
+				for (int j=0; j<k; ++j) out[iout++] = fixed[j];
 				curstate = 1;
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy a k-vector */
@@ -2774,6 +2632,41 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
 				}
 				for (int j=0; j<(k*(k+1))/2; ++j) out[iout++] = in[iin++];
 				curstate = 1;
+			} else if (cmdstr[i] == 'd') { /* Diagonal restriction of lower-triangular matrices */
+				if (iin+k > len_par) {
+					UNPROTECT(1);
+					error("Passed in parameter vector is too short", i, cmdstr[i]);
+				}
+				diag2ltri_(in+iin,&k,out+iout);
+				iin  += k;
+				iout += (k*(k+1))/2;
+				curstate = 1;
+			} else if (cmdstr[i] == 'f') {
+				double *fixed;
+				SEXP Rfixed_elt;
+				if (!fixed_chked) {
+					fixed_chked = 1;
+					if (TYPEOF(Rfixedpart) != VECSXP) {
+						UNPROTECT(1);
+						error("Fixed parameter parts should be a list of double precision vectors");
+					}
+				}
+				if (fixed_ptr >= length(Rfixedpart)) {
+					UNPROTECT(1);
+					error("The list of fixed parameters is too short");
+				}
+				Rfixed_elt = VECTOR_ELT(Rfixedpart, fixed_ptr++);
+				if (length(Rfixed_elt) != (k*(k+1))/2) {
+					UNPROTECT(1);
+					error("The length of the %d-th fixed parameter part is incorrect: should be %d but I've got a vector of length %d", fixed_ptr, (k*(k+1))/2, length(Rfixed_elt));
+				}
+				if (TYPEOF(Rfixed_elt) != REALSXP) {
+					UNPROTECT(1);
+					error("The %d-th fixed parameter is not a double precision numeric vector", fixed_ptr);
+				}
+				fixed = REAL(Rfixed_elt);
+				for (int j=0; j<(k*(k+1))/2; ++j) out[iout++] = fixed[j];
+				curstate = 1;
 			} else {
 				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
@@ -2782,11 +2675,15 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk) {
 		}
 		++i;
 	}
-	if (iin != len_par) {
-		UNPROTECT(1);
-		error("Passed in parameter vector is too long");
-	}
 	UNPROTECT(1);
+	if (iin != len_par) {
+		if (iin < len_par)
+			error("Passed in parameter vector is too long (=%d) compared to what the command string specifies (=%d)",
+			      len_par, iin);
+		if (iin > len_par)
+			error("Passed in parameter vector is too short (=%d) compared to what the command string specifies (=%d)",
+			      len_par, iin);
+	}
 	return Rout;
 }
 
@@ -2913,6 +2810,9 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 			} else if (cmdstr[i] == '0') { /* zero out */
 				ijacin += k*k;
 				curstate = 1;
+			} else if (cmdstr[i] == 'f') { /* Fixed, but not zero */
+				ijacin += k*k;
+				curstate = 1;
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy the entire chunk of Jacobian */
 				for (int j=0; j<k*k; ++j) {
@@ -2930,6 +2830,9 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 			break;
 		case 3: /* Expects input argument for 'V'; */
 			if (cmdstr[i] == '0') { /* zero out */
+				ijacin += k;
+				curstate = 1;
+			} else if (cmdstr[i] == 'f') { /* Fixed, but not zero */
 				ijacin += k;
 				curstate = 1;
 			} else if (cmdstr[i] == 'k') { /* keep the same */
@@ -2955,6 +2858,19 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 					++ijacout;
 					++ijacin;
 				}
+				curstate = 1;
+			} else if (cmdstr[i] == 'd') { /* Diagonal restriction for lower triangular matrices */
+				/* Copy only the diagonal par and skip the rest */
+				int jdiag=0;/* Diagonal counter */
+				for (int ipcol=0; ipcol < k; ++ipcol) { /* for each column */
+					for (int jrng=0; jrng < len_rng; ++jrng)
+						jacout[jrng+ijacout*len_rng]= jacin[jrng+ijacin*len_rng];
+					ijacin += k - jdiag;
+					++ijacout;
+					++jdiag;
+				}
+			} else if (cmdstr[i] == 'f') { /* Fixed, but not zero */
+				ijacin += (k*(k+1))/2;
 				curstate = 1;
 			} else {
 				UNPROTECT(1);
@@ -3192,7 +3108,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				ihessin += k*k;
 				isquashed += k;
 				curstate = 1;
-			} else if (cmdstr[i] == '0') { /* zero out */
+			} else if (cmdstr[i] == '0' || cmdstr[i] == 'f') { /* zero out or fixed */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
 				int nskip = k*k;
@@ -3214,7 +3130,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			}
 			break;
 		case 3: /* Expects input argument for 'V'; */
-			if (cmdstr[i] == '0') { /* zero out */
+			if (cmdstr[i] == '0' || cmdstr[i] == 'f') { /* zero out or fixed */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
 				int nskip;
@@ -3238,8 +3154,36 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			break;
 		case 4: 	/* Expects input argument for 'L' */
 			if (cmdstr[i] == 'k') { /* keep the same */
-				ihessin  += (k*(k+1))/2;
-				isquashed+= (k*(k+1))/2;
+				ihessin   += (k*(k+1))/2;
+				isquashed += (k*(k+1))/2;
+				curstate   = 1;
+			} else if (cmdstr[i] == 'd') {
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				int nskip;
+				nskip = (k*(k+1))/2 - k;
+				len_hesscurr_new = len_hesscurr - nskip;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				hessdiag2ltri_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &k, &isquashed);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin   += (k*(k+1))/2;
+				isquashed += k;
+			} else if (cmdstr[i] == 'f') {
+				double *hessouttmp_new;
+				int len_hesscurr_new;
+				int nskip;
+				nskip = (k*(k+1))/2;
+				len_hesscurr_new = len_hesscurr - nskip;
+				if (!(hessouttmp_new=malloc(len_rng*len_hesscurr_new*len_hesscurr_new*sizeof(double))))
+					goto MEMFAIL;
+				hesscpyskip_(hessouttmp_new, &len_hesscurr_new, hessouttmp, &len_hesscurr, &len_rng, &isquashed, &nskip);
+				free(hessouttmp);
+				hessouttmp   = hessouttmp_new;
+				len_hesscurr = len_hesscurr_new;
+				ihessin += (k*(k+1))/2;
 				curstate = 1;
 			} else {
 				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
@@ -3270,7 +3214,7 @@ MEMFAIL:
 
 
 static const R_CallMethodDef callMethods[]  = {
-  {"Rparamrestrict",    (DL_FUNC) &Rparamrestrict,    3},
+  {"Rparamrestrict",    (DL_FUNC) &Rparamrestrict,    4},
   {"Rpostjacrestrict",  (DL_FUNC) &Rpostjacrestrict,  4},
   {"Rposthessrestrict", (DL_FUNC) &Rposthessrestrict, 9},
   {"Rcurvifyhess",      (DL_FUNC) &Rcurvifyhess,      5},

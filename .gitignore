@@ -11,3 +11,4 @@ src/*/*.dll
 .RData
 .Rhistory
 *.log
+.Rd2pdf*

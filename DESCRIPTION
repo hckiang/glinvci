@@ -1,7 +1,7 @@
 Package: glinvci
 Type: Package
 Title: Multivariate Phylogenetic Comparative Methods with Confidence Intervals Support
-Version: 1.0
+Version: 1.0.1
 Date: 2021-07-16
 Authors@R: c(person(family="Kiang", given="Hao Chi", role=c("cre","aut"), email="hello@hckiang.com"))
 Maintainer: Hao Chi Kiang <hello@hckiang.com>
@@ -19,5 +19,4 @@ Imports:
     plyr
 Suggests:
     knitr,
-    rmarkdown,
     testthat

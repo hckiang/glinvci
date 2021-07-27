@@ -11,12 +11,6 @@
 #' @docType package
 #' @name glinvci
 #' @useDynLib glinvci, .registration=TRUE
-#' @import plyr
-#' @import Rcgmin
-#' @import lbfgsb3c
-#' @import BB
-#' @import ape
-#' @import stats
 NULL
 
 
@@ -1005,7 +999,7 @@ varest.glinv = function (mod,
            for (j in 1L:Nsamp) {
              if (!(quiet) && (j %% 50)==0) cat(sprintf('%d/%d\n', j, Nsamp))
              set_tips.glinv_gauss(mod$raw, simdat[[j]])
-             del[] = (rbinom(p,1,0.5)-0.5)*2*c
+             del[] = (stats::rbinom(p,1,0.5)-0.5)*2*c
              theta_plus[]  = mlepar + del
              theta_minus[] = mlepar - del
              DG[] = g(theta_plus) - g(theta_minus)
@@ -1030,7 +1024,7 @@ varest.glinv = function (mod,
 #'                         The first column is the lower limits and second column is the upper limits.
 #' @export
 marginal_ci = function (varest_result, lvl = 0.95) {
-  c_alpha = qnorm(1-((1-lvl)/2))
+  c_alpha = stats::qnorm(1-((1-lvl)/2))
   D = diag(varest_result$vcov)
   if (any(D <= 0)) stop('Cannot compute marginal confidence interval, because some diagonal elements of the variance-covariance is non-positive.')
   upper = varest_result$mlepar + sqrt(diag(varest_result$vcov)) * c_alpha

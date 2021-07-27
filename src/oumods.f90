@@ -70,7 +70,7 @@ contains
     tmp(1:k,1:k) = 0.0_c_double
     call dtpttr('L',k,sig_x,tmp,k,info)
     if (info /= 0) return
-    sig = matmul(tmp, transpose(tmp))
+    call dgemm('N','T',k,k,k,1.0_c_double,tmp,k,tmp,k,0.0_c_double,sig,k)
     info = 0
   end subroutine
 
@@ -81,7 +81,7 @@ contains
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
     real(c_double), pointer  :: tmp(:,:)
-    external dtpttr
+    external dtpttr, dgemm
     ! De-cholesky-ise sig_x
     tmp(1:k,1:k) => wsp(1:(k**2))
     tmp(1:k,1:k) = 0.0_c_double
@@ -90,7 +90,7 @@ contains
     do i = 1,k
        tmp(i,i) = exp(tmp(i,i))
     enddo
-    sig = matmul(tmp, transpose(tmp))
+    call dgemm('N','T',k,k,k,1.0_c_double,tmp,k,tmp,k,0.0_c_double,sig,k)
     info = 0
   end subroutine
 
@@ -185,7 +185,7 @@ contains
     complex(c_double_complex), target :: zwsp(lzwsp)
     target wsp, Phi
     real(c_double), pointer :: tmp(:,:), sig(:,:)
-    external dgpadm, dgemv
+    external dgemv
     if (eigavail==0) then
        call zeiginv(A,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info)
        if (info /= 0) return
@@ -193,9 +193,6 @@ contains
     tmp(1:k,1:k) => wsp(1:(k**2))
     call d0phi(t, k, P, invP, Lambda, tmp, zwsp(1:(k**2)))
     Phi(:,:) = tmp(:,:)
-!    call dgpadm(12,k,-t,A,k,wsp,4*k*k+12+1,ipiv,iexph,ns,iflag)  ! Compute Phi
-!    tmp(1:k,1:k) => wsp(iexph:)
-!    Phi(1:k,1:k) = tmp(:,:)
     do j = 1, k
        tmp(j,j) = tmp(j,j) - 1.0_c_double 
     enddo
@@ -594,12 +591,9 @@ contains
     dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp) !ipiv(k)
     target wsp
     real(c_double), pointer :: tmp(:,:)
-    !external dgpadm
     tmp(1:k,1:k) => wsp(1:(k**2))
     tmp(:,:) = 0.0_c_double
     call d0phi(t, k, P, invP, Lambda, tmp, zwsp(1:(k**2)))
-    !call dgpadm(10,k,-t,H,k,wsp,4*k*k+10+1,ipiv,iexph,ns,iflag)  ! Compute Phi
-    !tmp(1:k,1:k) => wsp(iexph:)
     do j = 1,k
        tmp(j,j) = tmp(j,j) - 1.0_c_double 
     enddo
@@ -1474,6 +1468,21 @@ contains
     ijn = ijn+1_c_int
     goto 1
 100 continue
+  end subroutine
+
+  subroutine diag2ltri(d, k, out) bind(C, name="diag2ltri_")
+    dimension d(k), out((k*(k+1))/2)
+    io = 1_c_int
+    id = 1_c_int
+    do j = 1,k
+       out(io) = d(id)
+       id = id + 1_c_int
+       io = io + 1_c_int
+       do i=(j+1),k
+          out(io) = 0.0_c_double
+          io      = io + 1_c_int
+       enddo
+    enddo
   end subroutine
 end module
 

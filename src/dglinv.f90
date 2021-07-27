@@ -2521,4 +2521,38 @@ contains
 100 continue
   end subroutine
 
+
+  subroutine hessdiag2ltri (Hnew, nnew, Hold, nold, m, k, istart) bind(C, name='hessdiag2ltri_')
+    dimension Hnew(m,nnew,nnew),  Hold(m,nold,nold)
+    ijdiag = 0_c_int
+    ijo = 1_c_int
+    ijn = 1_c_int
+1   if (ijo > nold) goto 100
+    iidiag = 0_c_int
+    iio = 1_c_int
+    iin = 1_c_int
+2   if (iio > nold) goto 90
+    do im=1,m
+       Hnew(im,iin,ijn) = Hold(im,iio,ijo)
+    enddo
+    if (iio >= istart+1_c_int .and. iio < istart+(k*(k+1_c_int))/2_c_int) then
+       iio = iio + (k-iidiag)
+       iidiag = iidiag+1_c_int
+    else
+       iio = iio + 1_c_int
+    endif
+    iin = iin+1_c_int
+    goto 2
+90  continue
+    if (ijo >= istart+1_c_int .and. ijo < istart+(k*(k+1_c_int))/2_c_int) then
+       ijo    = ijo+ (k-ijdiag)
+       ijdiag = ijdiag + 1_c_int
+    else
+       ijo    = ijo+ 1_c_int
+    endif
+    ijn = ijn+1_c_int
+    goto 1
+100 continue
+  end subroutine
+    
 end module dglinv

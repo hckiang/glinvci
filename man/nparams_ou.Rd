@@ -2,28 +2,13 @@
 % Please edit documentation in R/ou.R
 \name{nparams_ou}
 \alias{nparams_ou}
-\alias{nparams_ou_diagH}
-\alias{nparams_ou_logdiagH}
-\alias{nparams_ou_symH}
-\alias{nparams_ou_spdH}
-\alias{nparams_brn}
 \title{Get the number of parameters of some pre-defined models}
 \usage{
 nparams_ou(k)
-
-nparams_ou_diagH(k)
-
-nparams_ou_logdiagH(k)
-
-nparams_ou_symH(k)
-
-nparams_ou_spdH(k)
-
-nparams_brn(k)
 }
 \arguments{
 \item{k}{An Integer. The total number of dimensions of the multivariate traits.}
 }
 \description{
-\code{nparams_ou_*} returns the number of parameters of their respective model.
+\code{nparams_ou} returns the number of parameters of their respective model.
 }
