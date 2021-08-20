@@ -1,5 +1,6 @@
 # glinvci
-[![Build Status](https://travis-ci.com/hckiang/glinvci.svg?branch=main)](https://travis-ci.com/hckiang/glinvci)
+
+[![builds.sr.ht status](https://builds.sr.ht/~hckiang/glinvci/commits/.build.yml.svg)](https://builds.sr.ht/~hckiang/glinvci/commits/.build.yml?)
 
 ## Installation
 
