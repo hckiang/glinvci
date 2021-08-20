@@ -631,16 +631,11 @@ rm('l')
 rm('pat')
 rm('name_stub')
 rm('pkg_env')
-## rm('restriction_names')
-##rm('avail_restrict_cmds')
-##rm('special_cases')
-##rm('mkcmd')
 rm('cmd2abcd')
 rm('build_par')
 rm('build_jac')
 rm('build_hess')
 rm('build_nparams')
-
 
 
 ## Now deal with the documentation and exporting all of those functions...

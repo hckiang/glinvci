@@ -1591,9 +1591,8 @@ contains
     
     !! Invariant: Now falfm_p, i, i_c and stfalfm(i) all points to beta's place.
     !!
-    !! 0. falfm_p === i_c === stfalfm(i) by line 1197, therefore proving the top of the stack is pointed to beta's position
-    !!    is enough.
-    !! 1. If beta is one then nk is 0, so the stack has one elementand the loop executes only once. In the loop there
+    !! 0. falfm_p === i_c === stfalfm(i), therefore proving the top of the stack is pointed to beta's position
+    !! 1. If beta is one then nk is 0, so the stack has one element and the loop executes only once. In the loop there
     !!    is the first element in the chain, which is beta's parameter.
     !! 2. If beta >= 2, meaning nk>=1 then, for nk==1, the loop was executed twice and hence i ends with i == nk+1 == 2,
     !!    therefore in the top of the stack there is the second element of the chain, which satisfies the invariant.
@@ -1612,7 +1611,7 @@ contains
        enddo
     enddo
 
-    dfqk1%dqdw = dfqk1%dqdw + matmul(falfm, dgamdwev)       
+    dfqk1%dqdw = dfqk1%dqdw + matmul(falfm, dgamdwev)
 200 i = i - 1
     !! If beta - 1 is too small then nothing should be summed.
     if (i > 0) then
@@ -1676,7 +1675,7 @@ contains
     !!real(c_double), pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
     real(c_double), contiguous, pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
 
-    ! SLOW! These loops are very slow and unnecessary.
+    ! Everything in falfm needs to be multiplied by HPhi
     i_c = falfm_c
 10  call c_f_pointer(i_c, tmp_p)
     dcur(1:kbv,1:kmv) => tmp_p%dat
@@ -1688,11 +1687,14 @@ contains
        goto 10
     endif
 
+    ! At the end of the falfm chain, append beta's lambda.
+    ! In falfm_new there should be beta's lambda in it. This
+    ! Lambda needs to be multiplied by the F_1^m.
     tmp_p%nxt = falfm_new
-    call c_f_pointer(falfm_new, tmp_p)  ! In falfm_new there should be beta's lambda in it
+    call c_f_pointer(falfm_new, tmp_p)
     dcur(1:kbu,1:kbu) => tmp_p%dat
     dnew(1:kbu,1:kmv) => tmp_p%dat
-
+    
     i_c = fmg_c
     j = nk+1
 20  if (j /= 0) then
@@ -1707,7 +1709,7 @@ contains
        dnew = matmul(dcur, transpose(fmg))
        tmp_p%siz = kbu
     else
-       tmp_p%siz = kbu          ! Now kbu = kmv because β = parent(m).
+       tmp_p%siz = kbu          ! Now kbu = kmv because beta = parent(m).
     endif
     
     dcur(1:kbv,1:kr) => f1a(1:);  dnew(1:kbu,1:kr) => f1a(1:);    dnew = matmul(HPhi, dcur)

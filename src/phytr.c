@@ -1293,39 +1293,24 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 			}
 			if (q) goto UPALPHA;
 		}
-		/* Start copying the hessian values back into the R array.
-		   Why am I locking the block instead of locking only hessmem? Because of this:
-
-		   https://community.intel.com/t5/Intel-C-Compiler/Segfault-in-omp-destroy-lock/td-p/885187?profile.language=ja
-
-		   Yes, the bug report was 10 years ago. If you use Intel CC with Intel OpenMP this bug has indeed been fixed.
-		   But if you call Intel OpenMP from clang then the bug is still there on my computer in 2020. Not sure if this
-		   should be called a clang bug or an Intel bug.
-		 */
-//		#pragma omp critical
-//		{
-			for (b = 0; b < pushbackptr; ++b) {
-				/* HESS_WRITE */
-				if (dir) {
-					/* If we update the bilinear forms on-the-fly instead of storing the whole Hessian, each of these
-					   writes will race with tmtmdir_() and tntmdir_() in the master threads.
-					 */
-					// printf("NODE_ID: %d-%d  (C)\n", pv_ancestry[pv_i]->id+1, pushback[b].n->id+1);
-					tntmcpydir_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
-						    thrpv_bilinmat, dir, &ndir, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
-						    &(pv_ancestry[pv_i]->u.hnbk.V), &(pv_ancestry[pv_i]->u.hnbk.w),
-						    &(pushback[b].n->u.hnbk.Phi), &(pushback[b].n->u.hnbk.V), &(pushback[b].n->u.hnbk.w));
-				} else {
-					/* Because loop only visits the subtrees of the right-hand-side sibilings of beta, different threads writes to different
-					   elements of `hessflat'. Therefore no locking is needed. */
-					tntmcpy_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
-						 pv_rt->u.rbk.hessflat, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
-						 &(pv_ancestry[pv_i]->u.hnbk.V), &(pv_ancestry[pv_i]->u.hnbk.w),
-						 &(pushback[b].n->u.hnbk.Phi), &(pushback[b].n->u.hnbk.V), &(pushback[b].n->u.hnbk.w));
-				}
+		for (b = 0; b < pushbackptr; ++b) {
+			/* HESS_WRITE */
+			if (dir) {
+				/* Update the bilinear forms in a thread-local storage. The values will be summed up in the master thread
+				   after all threads have finished. */
+				tntmcpydir_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
+					    thrpv_bilinmat, dir, &ndir, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
+					    &(pv_ancestry[pv_i]->u.hnbk.V), &(pv_ancestry[pv_i]->u.hnbk.w),
+					    &(pushback[b].n->u.hnbk.Phi), &(pushback[b].n->u.hnbk.V), &(pushback[b].n->u.hnbk.w));
+			} else {
+				/* Because loop only visits the subtrees of the right-hand-side sibilings of beta, different threads writes to different
+				   elements of `hessflat'. Therefore no locking is needed. */
+				tntmcpy_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
+					 pv_rt->u.rbk.hessflat, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
+					 &(pv_ancestry[pv_i]->u.hnbk.V), &(pv_ancestry[pv_i]->u.hnbk.w),
+					 &(pushback[b].n->u.hnbk.Phi), &(pushback[b].n->u.hnbk.V), &(pushback[b].n->u.hnbk.w));
 			}
-//		}
-
+		}
 #undef KR
 #undef KNV
 #undef KNU
@@ -1380,15 +1365,13 @@ DOWNGLOB:
 	stglob[i]  = curglob; 
 	get_VwPhi(VwPhi_L, curglob.m, curglob.kv, NULL, &w, NULL, (char*)wsp+swsp, lwsp-swsp);
 	istip = (int)(!(curglob.m->chd));
-	// if (! (K           = calloc((curglob.m->ndat.ku) * (curglob.m->ndat.ku), sizeof(double))))   goto MEMFAIL;
 	if (! (K           = malloc((curglob.kv)*(curglob.kv)*sizeof(double))))            goto MEMFAIL;
-	if (! (dfqk1_ch    = calloc(DFQKSIZ,1)))                          goto MEMFAIL;
-	if (! (dfqk1new_ch = calloc(DFQKSIZ,1)))                          goto MEMFAIL;
+	if (! (dfqk1_ch    = calloc(DFQKSIZ,1)))                                           goto MEMFAIL;
+	if (! (dfqk1new_ch = calloc(DFQKSIZ,1)))                                           goto MEMFAIL;
 	dzero(K, (curglob.kv)*(curglob.kv));
 	if (!allocdfqk(rt->ndat.ku, curglob.kv, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, dfqk1_ch)) goto MEMFAIL;
 	/* HESS_WRITE */
 	if (dir) {
-		//printf("NODE_ID: %d-%d (D)\n", curglob.m->id+1, curglob.m->id+1);
 		tmtmdir_(&(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), &(curglob.gbk->fmlfm), &(curglob.gbk->qm), &(curglob.gbk->fm), &(curglob.gbk->a),
 			 curglob.m->ndat.dodv, curglob.m->ndat.dodphi, curglob.m->ndat.dgamdv, curglob.m->ndat.dgamdw, curglob.m->ndat.dgamdphi,
 			 dfqk1_ch, K, x0, &(istip),
@@ -1438,6 +1421,8 @@ DOWNGLOB:
 		}
 		if( !allocdfqk(rt->ndat.ku, stglob[k].m->ndat.ku, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, (struct dfdqdk*)(((char*)starters)+DFQKSIZ*k)) )
 			goto MEMFAIL;
+		/* TO OPTIMISE: The following function walks through fmlfm, qm, fm etc. to calculates (F,q,K) of each beta and allocate big chunks of memory in the heap.
+		                Possible to avoid all these by updating? */
 		initfqk4b_((void*)((char*)starters+DFQKSIZ*k), &(curglob.gbk->fm), &(curglob.gbk->qm), &(kbk_beta.fmlfm), kbk_beta.fm->dat, kbk_beta.qm->dat,
 			   &(curglob.gbk->a), &k, &(rt->ndat.ku), &(stglob[k].m->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku),
 			   curglob.m->ndat.dodv, curglob.m->ndat.dodphi, curglob.m->ndat.dgamdv, curglob.m->ndat.dgamdw,
