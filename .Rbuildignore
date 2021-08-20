@@ -3,6 +3,6 @@
 .git
 .gitignore
 .travis.yml
+.build.yml
 .Rd2pdf.*
 LICENSE
-

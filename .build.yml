@@ -1,0 +1,20 @@
+image: archlinux
+packages:
+  - r
+  - linux-headers
+  - texlive-core
+  - texlive-fontsextra
+  - texlive-formatsextra
+  - texlive-science
+  - texlive-bibtexextra
+  - gcc-fortran
+  - gcc-libs
+sources:
+  - https://git.sr.ht/~hckiang/glinvci
+tasks:
+  - setup: |
+      Rscript -e 'dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE); install.packages(c("knitr","testthat","Rcgmin","lbfgsb3c","BB","ape","numDeriv","plyr"), repos="https://cloud.r-project.org", lib=Sys.getenv("R_LIBS_USER"))'
+  - build: |
+      R CMD build glinvci/
+  - check: |
+      R CMD check glinvci_*.tar.gz --as-cran
