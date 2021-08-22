@@ -2,7 +2,7 @@
 
 GLInvCI is a package that provides a framework for computing the maximum-likelihood estimates and asymptotic confidence intervals of a class of continuous-time Gaussian branching processes, including the Ornstein-Uhlenbeck branching process, which is commonly used in phylogenetic comparative methods. The framework is designed to be flexible enough that the user can easily specify their own parameterisation and obtain the maximum-likelihood estimates and confidence intervals of their own parameters.
 
-The model in concern is GLInv family, in which each species' traits evolve independently of each others after branching off from their common ancestor and for every non-root node. Let (Φₖ,wₖ,Vₖ) be a child node of (Φₖ,wₖ,Vₖ), and (Φₖ,wₖ,Vₖ), (Φₖ,wₖ,Vₖ) denotes the corresponding multivariate traits. We assume that (Φₖ,wₖ,Vₖ) is a Gaussian distribution with expected value (Φₖ,wₖ,Vₖ) and variance (Φₖ,wₖ,Vₖ), where the matrices (Φₖ,wₖ,Vₖ) are parameters independent of (Φₖ,wₖ,Vₖ) but can depend other parameters including (Φₖ,wₖ,Vₖ). The traits (Φₖ,wₖ,Vₖ) and (Φₖ,wₖ,Vₖ) can have different number of dimension.
+The model in concern is GLInv family, in which each species' traits evolve independently of each others after branching off from their common ancestor and for every non-root node. Let k be a child node of i, and zₖ, zᵢ denotes the corresponding multivariate traits. We assume that zₖ|zᵢ is a Gaussian distribution with expected value wₖ+Φₖzᵢ and variance Vₖ, where the matrices (Φₖ,wₖ,Vₖ) are parameters independent of zₖ but can depend other parameters including tₖ. The traits zₖ and zᵢ can have different number of dimension.
 
 # Installation
 
