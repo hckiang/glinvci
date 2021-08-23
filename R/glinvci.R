@@ -559,7 +559,7 @@ print.glinv = function (x, ...) {
   cat(sprintf(paste0(
     'A GLInv model with %d regimes and %d parameters in total, %s.\n',
     'The phylogeny has %d tips and %d internal nodes.\n'),
-    length(unique(mod$regtags)), mod$nparams,
+    length(unique(na.exclude(mod$regtags))), mod$nparams,
     {
       if (length(mod$parsegments) > 2) {
         i = 1 # currently processing parfn ID.

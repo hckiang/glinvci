@@ -42,7 +42,7 @@ With the above material, we are ready to make a model object. We use OU as an ex
 
     %
     [breaklines=true,frame=none,basicstyle={\color{outputfg}\ttfamily\footnotesize},rulecolor={\color{outputfg}},framesep={0.5em},frame=leftline]
-    A GLInv model with 2 regimes and 8 parameters in total, all of which are associated to the only one existing regime, which starts from the root. The phylogeny has 200 tips and 199 internal nodes.
+    A GLInv model with 1 regimes and 8 parameters in total, all of which are associated to the only one existing regime, which starts from the root. The phylogeny has 200 tips and 199 internal nodes.
 
 Let's take an arbitrary parameters as an example: The following code demostrates how to computing the model's likelihood, gradient, and Hessian at an arbitrarily specified pararmenter:
 
