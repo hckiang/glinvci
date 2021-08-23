@@ -2,19 +2,19 @@
 
 GLInvCI is a package that provides a framework for computing the maximum-likelihood estimates and asymptotic confidence intervals of a class of continuous-time Gaussian branching processes, including the Ornstein-Uhlenbeck branching process, which is commonly used in phylogenetic comparative methods. The framework is designed to be flexible enough that the user can easily specify their own parameterisation and obtain the maximum-likelihood estimates and confidence intervals of their own parameters.
 
-The model in concern is GLInv family, in which each species’ traits evolve independently of each others after branching off from their common ancestor and for every non-root node. Let *k* be a child node of *i*, and *z*<sub>*k*</sub>, *z*<sub>*i*</sub> denotes the corresponding multivariate traits. We assume that *z*<sub>*k*</sub>|*z*<sub>*i*</sub> is a Gaussian distribution with expected value *w*<sub>*k*</sub> + *Φ*<sub>*k*</sub>*z*<sub>*i*</sub> and variance *V*<sub>*k*</sub>, where the matrices (*Φ*<sub>*k*</sub>,*w*<sub>*k*</sub>,*V*<sub>*k*</sub>) are parameters independent of *z*<sub>*k*</sub> but can depend other parameters including *t*<sub>*k*</sub>. The traits *z*<sub>*k*</sub> and *z*<sub>*i*</sub> can have different number of dimension.
+The model in concern is GLInv family, in which each species’ traits evolve independently of each others after branching off from their common ancestor and for every non-root node. Let k be a child node of i, and zₖ, zᵢ denotes the corresponding multivariate traits. We assume that zₖ|zᵢ is a Gaussian distribution with expected value wₖ+Φₖzᵢ and variance Vₖ, where the matrices (Φₖ,wₖ,Vₖ) are parameters independent of zₖ but can depend other parameters including tₖ. The traits zₖ and zᵢ can have different number of dimension.
 
 # Installation
 
 The following command should install the latest version of the package:
 
     install.packages('devtools')
-    devtools::install(
+    devtools::install_url(
       'https://git.sr.ht/~hckiang/glinvci/blob/latest-tarballs/glinvci_latest_main.tar.gz')
 
 # High-level and low-level interface
 
-The package contains two levels of user interfaces. The high-level interface, accessible through the `glinv` function, provides facilities for handling missing traits, lost traits, multiple evolutionary regimes, and most importantly, the calculus chain rule. The lower-level interface, accessible through the `glinv_gauss` function, allows the users to operate purely in the (*Φ*<sub>*k*</sub>,*w*<sub>*k*</sub>,*V*<sub>*k*</sub>) parameter space.
+The package contains two levels of user interfaces. The high-level interface, accessible through the `glinv` function, provides facilities for handling missing traits, lost traits, multiple evolutionary regimes, and most importantly, the calculus chain rule. The lower-level interface, accessible through the `glinv_gauss` function, allows the users to operate purely in the (Φₖ,wₖ,Vₖ) parameter space.
 
 Most users should be satisfied with the high-level interface, even if they intend to write their own custom models.
 
