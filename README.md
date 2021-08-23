@@ -18,7 +18,7 @@ The package contains two levels of user interfaces. The high-level interface, ac
 
 Most users should be satisfied with the high-level interface, even if they intend to write their own custom models.
 
-# Using the high-level interface: Brownian Motion and OU Models
+# High-level interface example #1: OU Models
 
 To fit a model using this package, generally you will need two main pieces of input data: a rooted phylogenetic tree and a matrix of trait values. The phylogenetic tree can be non-ultrametric and can potentially contain multifurcation. The matrix of trait values should have the same number of columns as the number of tips.
 
@@ -41,7 +41,8 @@ With the above material, we are ready to make a model object. We use OU as an ex
     print(mod)
 
 ```
-A GLInv model with 1 regimes and 8 parameters in total, all of which are associated to the only one existing regime, which starts from the root. The phylogeny has 200 tips and 199 internal nodes.
+A GLInv model with 1 regimes and 8 parameters in total, all of which are associated to the only one existing regime, which starts from the root.
+The phylogeny has 200 tips and 199 internal nodes.
 ```
 
 Let’s take an arbitrary parameters as an example: The following code demostrates how to computing the model’s likelihood, gradient, and Hessian at an arbitrarily specified pararmenter:
@@ -149,3 +150,83 @@ sig_x3   0.549033  2.1993203
 ```
 
 Notice that some of the parameters have fairly large confidence intervals. This suggests that perhaps we do not have enough data to precisely estimate all the parameters.
+
+# High-level interface example #2: Brownian Motion
+
+Let’s assume we have the same data `k`, `tr`, `X`, `x0` as generated before. To fit a standard Brownian motion model, we can call the following:
+
+    repar_brn = get_restricted_ou(H='zero', theta='zero', Sig=NULL, lossmiss=NULL)
+    mod_brn   = glinv(tr, x0, X,
+                      pardims = repar_brn$nparams(k),
+                      parfns  = repar_brn$par,
+                      parjacs = repar_brn$jac,
+                      parhess = repar_brn$hess)
+    print(mod_brn)
+
+```
+A GLInv model with 1 regimes and 3 parameters in total, all of which are associated to the only one existing regime, which starts from the root.
+The phylogeny has 200 tips and 199 internal nodes.
+```
+
+As you may might have already guessed, `H='zero'` above means that we restrict the drift matrix term of the OU to be a zero matrix. In this case, `theta`, the evolutionary optimum, is meaningless. In this case, the package will throw an error if `theta` is not zero. In other words, for Brownian motion we always have `H='zero', theta='zero'`.
+
+The following calls demonstrates how to compute the likelihood:
+
+    par_init_brn = c(sig_x=sig_x)
+    cat('Likelihood:\n')
+    print(lik(mod_brn)(par_init_brn))
+
+```
+Likelihood:
+[1] -1158.31
+```
+
+The user can obtain the an MLE fit by calling `fit(mod_brn, par_init_brn)`. The marginal CI and the estimator’s variance can be obtained in exactly the same way as in the OU example.
+
+# High-level interface example #3: Multiple regimes, missing data, and lost traits.
+
+Out of box, the package allows missing data in the tip trait matrix, as well as allowing multiple revolutionary regimes.
+
+A ‘missing’ trait refers to a trait value whose data is missing due to data collection problems. Fundamentally, they evolves in the same manner as other traits. An `NA` entry in the trait matrix `X` is deemed ‘missing’. A lost trait is a trait dimension which had ceased to exists during the evolutionary process. An `NaN` entry in the data indicates a ‘lost’ trait. The package provides two different ways of handling lost traits. For more details about how missingness is handled, the users should read `?ou_haltlost`.
+
+In this example, we demonstrate how to fit a model with two regimes, and some missing data and lost traits. Assume the phylogeny is the same as before but some entries of `X` is `NA` or `NaN`. First, let’s arbitrarily set some entries of `X` to missingness, just for the purpose of demonstration.
+
+    X[2,c(1,2,80,95,130)] = NA
+    X[1,c(180:200)] = NaN
+
+The following call constructs a model object in which two evolutionary regimes are present: one starts at the root with Brownian motion, and another one starts at internal node number 290 with an OU process in which the drift matrix is restricted to positively definite diagonal matrices. In a binary tree with N tips, the node number of the root is always N+1; in other words, in our case, the root node number is 200+1.
+
+    repar_a = get_restricted_ou(H='logdiag', theta=NULL,   Sig=NULL, lossmiss='halt')
+    repar_b = get_restricted_ou(H='zero',    theta='zero', Sig=NULL, lossmiss='halt')
+    mod_tworeg = glinv(tr, x0, X,
+                       pardims = list(repar_a$nparams(k), repar_b$nparams(k)),
+                       parfns  = list(repar_a$par,     repar_b$par),
+                       parjacs = list(repar_a$jac,     repar_b$jac),
+                       parhess = list(repar_a$hess,    repar_b$hess),
+                       regimes = list(c(start=201, fn=2),
+                                      c(start=290, fn=1)))
+    print(mod_tworeg)
+
+```
+A GLInv model with 2 regimes and 10 parameters in total, among which;
+    the 1~7-th parameters are asociated with regime no. {2};
+    the 8~10-th parameters are asociated with regime no. {1},
+where 
+    regime #1 starts from node #201, which is the root;
+    regime #2 starts from node #290.
+The phylogeny has 200 tips and 199 internal nodes.
+```
+
+In the above, we have defined two regimes and two stochastic processes. The `pardims`, `parfns`, `parjacs`, and `parhess` specifies the two stochastic processes and the `regime` parameter can be thought of as ‘drawing the lines’ to match each regime to a seperately defined stochastic processes. The `start` element in the list specifies the node number at which a regime starts, and the `fn` element is an index to the list passed to `pardims`, `parfns`, `parjacs`, and `parhess`. In this example, the first regime starts at the root and uses `repar_b`. If multiple regimes share the same `fn` index then it means that they shares both the underlying stochastic process and the parameters. `lossmiss='halt'` specifies how the lost traits (the `NaN`) are handled.
+
+To compute the likelihood and initialize for optimisation, one need to take note of the input parameters’ format. When `parfns` etc. have more than one elements, the parameter vector that `lik` and `fit` etc. accept is simply assumed to be the concatenation of all of its elements’ parameters. The following example should illustrate this.
+
+    logdiagH = c(0,0)   # Meaning H is the identity matrix
+    theta    = c(1,0)
+    Sig_x_ou  = c(0,0,0) # Meaning Sigma is the identity matrix
+    Sig_x_brn = c(0,0,0)
+    print(lik(mod_tworeg)(c(logdiagH, theta, Sig_x_ou, Sig_x_brn)))
+
+```
+[1] -760.301
+```

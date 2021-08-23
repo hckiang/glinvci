@@ -522,6 +522,8 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
   if (!length(x0) == dimtab[tree$edge[1,1]]) 
     stop(sprintf("The dimension of `x0` must be %d but I got %d",
                  dimtab[tree$edge[1,1]], length(x0)))
+  if (length(pardims) != length(parfns) || length(pardims) != length(parjacs) || length(pardims) != length(parhess))
+    stop("pardims, parfns, parjacs, parhess must have the same length.")
   rawmod     = glinv_gauss(tree, x0, dimtab, X = if (is.null(X)) NULL else tip_purge(X))
   regtags    = tag_regimes(modtpl, unlist(Map(function(x) x['start'], regimes)))
   parfntags  = tag_parfns(regtags, regimes)
