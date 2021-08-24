@@ -12,7 +12,7 @@ packages:
 secrets:
   - cb466cad-72fe-4083-9162-dcb2950df91b
 sources:
-  - https://git.sr.ht/~hckiang/glinvci#main
+  - https://git.sr.ht/~hckiang/glinvci
 tasks:
   - setup: |
       Rscript -e 'dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE); install.packages(c("knitr","testthat","Rcgmin","lbfgsb3c","BB","ape","numDeriv","plyr"), repos="https://cloud.r-project.org", lib=Sys.getenv("R_LIBS_USER"))'
