@@ -112,19 +112,25 @@ The maximum likelihood estimates can be obtained by calling the `fit.glinv` meth
     print(fitted)
 
 ```
-mlepar
-        H1         H2         H3     theta1     theta2     sigₓ1     sigₓ2
+$mlepar
+        H1         H2         H3     theta1     theta2     sig_x1     sig_x2
  1.7473088  3.0687662  0.9462338 -0.0417478 -0.0967537  2.1723982  4.3828934
-    sigₓ3
- 1.3741767loglik
+    sig_x3
+ 1.3741767
+
+$loglik
 [1] 599.386
 
-counts
-[1] 852 345convergence
+$counts
+[1] 852 345
+
+$convergence
 [1] 0
 
-message
-[1] "Rcgmin seems to have converged"score
+$message
+[1] "Rcgmin seems to have converged"
+
+$score
 [1]  0.0010458539  0.0012164202  0.0019767975  0.0000223676  0.0001637558
 [6] -0.0000594491  0.0027448292  0.0013087048
 ```
