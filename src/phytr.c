@@ -145,7 +145,6 @@ static int protdpth = -1;    /* Keeps track of the R GC PROTECT() depth. */
 */
 extern void hessdiag2ltri_(double *Hnew, int *nnew, double *Hold, int *nold, int *m, int *k, int *istart);
 extern void diag2ltri_(double *d, int *k, double *out);
-extern void glinvtestfloatIEEE01_(double *x, double*out);
 extern void hchnlndiag_(double *Hnew, int *nnew, double *Hold, int *nold, double *par,
 			double *djacthis, int *ildjac, int *joffset, int *m, int *istart, int *k);
 extern void hesschopnondiag_(double *Hnew, int *nnew, double *Hold, int *nold, int *m, int *istart, int *k);
@@ -2041,7 +2040,7 @@ void tagreg2(struct node *t, int nnode, int *v, size_t lenv, int *res, int curre
 void vwphi_simulwk(struct node *t, int ntip, double *dpar, double *daddy, int kv, double *wsp, size_t swsp, SEXP out, int *info);
 void vwphi_simul(struct node *t, int ntip, double *dpar, double *x0, double *wsp, SEXP out, int *info);
 SEXP Rvwphi_simul(SEXP Rctree, SEXP Rntip, SEXP Rdimtab, SEXP Rpar, SEXP Rnsamp, SEXP Rx0) {
-	struct node *t, *p;
+	struct node *t;
 	int nsamp, *dimtab, ntip, mdim;
 	double *dpar, *x0;
 	int info;
@@ -2306,7 +2305,7 @@ void chkusrhess (SEXP Robj, int nparglobal, int nparregime, int nid, int pid, in
 			   "I expect that ans[['w']] "
 			   "is a %d-by-%d-by-%d array of double precision real numbers.",
 			   nid+1, pid+1, ku, nparregime, nparregime));
-	if (! chkusrhess_VwOrPhi(Rwans, 1, nparregime, ku, kv))
+	if (! chkusrhess_VwOrPhi(RPhians, 0, nparregime, ku, kv))
 		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
 			   "parameterisation returned an wrong object on the `Phi' part of the returned "
 			   "list on node ID #%d (mother node is #%d). For this particular node, "
@@ -2678,7 +2677,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 	SEXP Rjacout, Rdim_jacin, Rdim_jacout;
 	const char *cmdstr;
 	double *parin, *jacout, *jacin;
-	int len_parin, len_jacout, len_jacin, len_rng, len_jaccolorig, k, *dim_jacout;
+	int len_parin, len_jacout, len_rng, len_jaccolorig, k, *dim_jacout;
         /* 1: Expects output type or termination;
            2: Expects input type for 'M';
            3: Expects input type for 'V';
@@ -2882,10 +2881,10 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 */
 SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 		       SEXP Rjaclower, SEXP Rjloweroffset, SEXP Rjacthis, SEXP Rjthisoffset_r, SEXP Rjthisoffset_c) {
-	SEXP Rhessin, Rhessout, Rdim_hessin, Rdim_hessout;
+	SEXP Rhessout, Rdim_hessin, Rdim_hessout;
 	const char *cmdstr;
 	double *parin, *hessout, *hessin, *jaclower, *hessouttmp, *jacthis;
-	int len_parin, len_hessout, len_hessin, len_rng, len_hesscolorig, k, *dim_hessout,
+	int len_parin, len_hessout, len_rng, len_hesscolorig, k, *dim_hessout,
 		jloweroffset, ld_jaclower, ld_jacthis, len_hesscurr, jthisoffset_r, jthisoffset_c;
         /* 1: Expects output type or termination;
            2: Expects input type for 'M';
@@ -2895,7 +2894,6 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	int curstate = 1, i, ihessin, isquashed;
 	int chked_jaclower = 0;
 	int chked_jacthis = 0;
-	int pass = 1;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
 	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
 	parin    = REAL(Rpar);
@@ -3198,32 +3196,84 @@ MEMFAIL:
 }
 
 
+extern void *(glinvtestfloatIEEE01_)();
+extern void *(glinvtestfloatIEEE02)();
+extern void *(glinvtestfloatIEEE03)();
 static const R_CallMethodDef callMethods[]  = {
-  {"Rparamrestrict",    (DL_FUNC) &Rparamrestrict,    4},
-  {"Rpostjacrestrict",  (DL_FUNC) &Rpostjacrestrict,  4},
-  {"Rposthessrestrict", (DL_FUNC) &Rposthessrestrict, 9},
-  {"Rcurvifyhess",      (DL_FUNC) &Rcurvifyhess,      5},
-  {"Rchkusrhess",       (DL_FUNC) &Rchkusrhess,       7},
-  {"Rextractderivvec",  (DL_FUNC) &Rextractderivvec,  1},
-  {"Rdphylik",          (DL_FUNC) &Rdphylik,          4},
-  {"Rhphylik",          (DL_FUNC) &Rhphylik,          4},
-  {"Rhphylik_dir",      (DL_FUNC) &Rhphylik_dir,      5},
-  {"Rextracthessall",   (DL_FUNC) &Rextracthessall,   1},
-  {"Rndesc",            (DL_FUNC) &Rndesc,            1},
-  {"Rnparams",          (DL_FUNC) &Rnparams,          1},
-  {"Rxavail",           (DL_FUNC) &Rxavail,           1},
-  {"Rsettip",           (DL_FUNC) &Rsettip,           2},
-  {"Rvwphi_simul",      (DL_FUNC) &Rvwphi_simul,      6},
-  {"R_clone_tree",      (DL_FUNC) &R_clone_tree,      1},
-  {"Rnewnode",          (DL_FUNC) &Rnewnode,          3},
-  {"Rndphylik",         (DL_FUNC) &Rndphylik,         4},
-  {"Rvwphi_paradr",     (DL_FUNC) &Rvwphi_paradr,     1},
-  {"Rtagmiss",          (DL_FUNC) &Rtagmiss,          3},
-  {"Rtagreg",           (DL_FUNC) &Rtagreg,           3},
-  {NULL, NULL, 0}
+	{"Rparamrestrict",       (DL_FUNC) &Rparamrestrict,       4},
+	{"Rpostjacrestrict",     (DL_FUNC) &Rpostjacrestrict,     4},
+	{"Rposthessrestrict",    (DL_FUNC) &Rposthessrestrict,    9},
+	{"Rcurvifyhess",         (DL_FUNC) &Rcurvifyhess,         5},
+	{"Rchkusrhess",          (DL_FUNC) &Rchkusrhess,          7},
+	{"Rextractderivvec",     (DL_FUNC) &Rextractderivvec,     1},
+	{"Rdphylik",             (DL_FUNC) &Rdphylik,             4},
+	{"Rhphylik",             (DL_FUNC) &Rhphylik,             4},
+	{"Rhphylik_dir",         (DL_FUNC) &Rhphylik_dir,         5},
+	{"Rextracthessall",      (DL_FUNC) &Rextracthessall,      1},
+	{"Rndesc",               (DL_FUNC) &Rndesc,               1},
+	{"Rnparams",             (DL_FUNC) &Rnparams,             1},
+	{"Rxavail",              (DL_FUNC) &Rxavail,              1},
+	{"Rsettip",              (DL_FUNC) &Rsettip,              2},
+	{"Rvwphi_simul",         (DL_FUNC) &Rvwphi_simul,         6},
+	{"R_clone_tree",         (DL_FUNC) &R_clone_tree,         1},
+	{"Rnewnode",             (DL_FUNC) &Rnewnode,             3},
+	{"Rndphylik",            (DL_FUNC) &Rndphylik,            4},
+	{"Rvwphi_paradr",        (DL_FUNC) &Rvwphi_paradr,        1},
+	{"Rtagmiss",             (DL_FUNC) &Rtagmiss,             3},
+	{"Rtagreg",              (DL_FUNC) &Rtagreg,              3},
+	{"glinvtestfloatIEEE02", (DL_FUNC) &glinvtestfloatIEEE02, 1},
+	{NULL, NULL, 0}
 };
-void
-R_init_glinvci(DllInfo *info)
-{
-   R_registerRoutines(info, NULL, callMethods, NULL, NULL);
+
+extern void *(d0geouvwphi_)();
+static R_NativePrimitiveArgType d0geouvwphi_type[] = {
+	REALSXP,INTSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,CPLXSXP,CPLXSXP,
+	CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
+extern void *(ougejac_)();
+static R_NativePrimitiveArgType ougejac_type[] = {
+	REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,REALSXP,INTSXP};
+static R_NativePrimitiveArgType lnunchol_type[] = {
+	REALSXP, INTSXP, REALSXP, INTSXP, REALSXP, INTSXP};
+extern void *(hphiha_)();
+static R_NativePrimitiveArgType hphiha_type[] = {
+	REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP,INTSXP};
+extern void *(hvha_)();
+static R_NativePrimitiveArgType hvha_type[] = {
+	REALSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
+extern void *(hvdadl_)();
+static R_NativePrimitiveArgType hvdadl_type[] = {
+	REALSXP,REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP};
+extern void *(hvhl_)();
+static R_NativePrimitiveArgType hvhl_type[] = {
+	REALSXP, INTSXP, REALSXP, CPLXSXP, CPLXSXP, CPLXSXP, REALSXP, INTSXP, CPLXSXP, INTSXP, REALSXP};
+extern void *(hwdthetada_)();
+static R_NativePrimitiveArgType hwdthetada_type[] = {
+	INTSXP, REALSXP, REALSXP};
+extern void *(dphida_)();
+static R_NativePrimitiveArgType dphida_type[] = {
+	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP};
+extern void *(hwha_)();
+static R_NativePrimitiveArgType hwha_type[] = {INTSXP,REALSXP,REALSXP,REALSXP};
+static R_NativePrimitiveArgType glinvtestfloatIEEE01_type[] = {REALSXP,REALSXP};
+static R_NativePrimitiveArgType glinvtestfloatIEEE03_type[] = {REALSXP,REALSXP};
+static const R_CMethodDef cMethods[] = {
+	{"d0geouvwphi_",          &d0geouvwphi_,          17, d0geouvwphi_type           },
+	{"ougejac_",              &ougejac_,              13, ougejac_type               },
+	{"lnunchol_",             (DL_FUNC)&lnunchol_,     6, lnunchol_type              },
+	{"hphiha_",               &hphiha_,               10, hphiha_type                },
+	{"hvha_",                 &hvha_,                 14, hvha_type                  },
+	{"hvdadl_",               &hvdadl_,               13, hvdadl_type                },
+	{"hvhl_",                 &hvhl_,                 11, hvhl_type                  },
+	{"hwdthetada_",           &hwdthetada_,            3, hwdthetada_type            },
+	{"dphida_",               &dphida_,                8, dphida_type                },
+	{"hwha_",                 &hwha_,                  4, hwha_type                  },
+	{"glinvtestfloatIEEE01_", &glinvtestfloatIEEE01_,  2, glinvtestfloatIEEE01_type  },
+	{"glinvtestfloatIEEE03",  &glinvtestfloatIEEE03,   2, glinvtestfloatIEEE03_type  },
+	{NULL, NULL, 0, NULL}
+};
+
+void R_init_glinvci(DllInfo *info) {
+	R_registerRoutines(info, cMethods, callMethods, NULL, NULL);
+	R_useDynamicSymbols(info, FALSE);
+	R_forceSymbols(info, TRUE);
 }
