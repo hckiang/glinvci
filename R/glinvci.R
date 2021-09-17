@@ -746,6 +746,10 @@ gaussparams = function (mod) {
       pend   = mod$parsegments[fid,'end']
       gstart = mod$gausssegments[nid,'start']
       gend   = mod$gausssegments[nid,'end']
+      environment(fn)[['INFO__']] = list(mod                        = mod,
+                                         node_id                    = nid,
+                                         parent_id                  = pid,
+                                         parfn_id                   = fid)
       res[gstart:gend,] = fn(par[pstart:pend], el, kp, kn)
     }
     res
@@ -769,6 +773,10 @@ gaussparams_grad = function (mod) {
       pend   = mod$parsegments[fid,'end']
       gstart = mod$gausssegments[nid,'start']
       gend   = mod$gausssegments[nid,'end']
+      environment(jacfn)[['INFO__']] = list(mod                        = mod,
+                                            node_id                    = nid,
+                                            parent_id                  = pid,
+                                            parfn_id                   = fid)
       res[gstart:gend,pstart:pend] = jacfn(par[pstart:pend], el, kp, kn)
     }
     res
