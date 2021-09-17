@@ -80,7 +80,7 @@ oupar = function (par, t, ...) {
   wsp = double(lwsp);    mode(wsp)     = 'double'
   zwsp = complex(lzwsp); mode(zwsp)    = 'complex'
   eigavail = 0;          mode(eigavail)= 'integer'
-  res = .C('d0geouvwphi_', H,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,info, NAOK=T)
+  res = .C(d0geouvwphi_, H,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,info, NAOK=T)
   if (res[[17L]] != 0)   stop('Cannot eigen-decompose `H`')
   if (vecfmt)            return( unlist(res[c(8L,7L,6L)]) )
   else                   return( { R=res[c(8L,7L,6L)]; names(R)=c('Phi','w','V'); R } )
@@ -122,7 +122,7 @@ oujac = function (par, t, ...) {
   wsp = double(lwsp);                     mode(wsp)     = 'double'
   eigavail = 0;                           mode(eigavail)= 'integer'
   jac   = matrix(0,k*k+k+(k*(k+1L))%/%2L,k*k+k+(k*(k+1L))%/%2L); mode(jac)   = 'double'
-  ougejacres = .C('ougejac_', t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,jac,info,  NAOK=T)
+  ougejacres = .C(ougejac_, t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,jac,info,  NAOK=T)
   if (ougejacres[[13]] != 0)   stop('Cannot eigen-decompose `H`')
   r = ougejacres[[12]]
   r
@@ -131,7 +131,7 @@ oujac = function (par, t, ...) {
 
 #' Jacobian of matrix of the Ornstein-Uhlenbeck model
 #' 
-#' \code{ouhess} returns accepts the same arguments as \code{oupar}
+#' \code{ouhess} accepts the same arguments as \code{oupar}
 #' and returns all the second derivatives \code{oupar}. The returned
 #' values are consistent with the format required by \code{link{glinv}}.
 #' 
@@ -142,13 +142,13 @@ ouhess = function (par, t, ...) {
   npar = length(par)
   mode(par) = 'double'
   mode(t)   = 'double'
-  sig = .C('lnunchol_', as.double(par[((k*k)+k+1L):npar]), k,
+  sig = .C(lnunchol_, as.double(par[((k*k)+k+1L):npar]), k,
            double(k*k), k*k, matrix(0.,k,k), 0L, NAOK=T)[[5]]
   eig = eigen(matrix(par[1L:(k*k)],k,k))
   P = as.complex(eig[['vectors']])
   invP = as.complex(solve(eig[['vectors']]))
   Lambda = as.complex(eig[['values']])
-  res = .C('hphiha_', t, par[1L:(k*k)],
+  res = .C(hphiha_, t, par[1L:(k*k)],
            k, P,invP,Lambda,
            array(0.0, c(k*k,k*k,k*k)),
            complex(k^6+2L*(k*k)+3), integer(k^6+2L*(k*k)+3),
@@ -157,15 +157,15 @@ ouhess = function (par, t, ...) {
   hphiha = res[[7]]
   r = list('V' = {
     hv = array(0., c((k*(k+1L))%/%2L, npar, npar))
-    hvhares = .C('hvha_', t, sig, par[1L:(k*k)],
+    hvhares = .C(hvha_, t, sig, par[1L:(k*k)],
              k, P, invP, Lambda,
              array(0., c((k*(k+1L))%/%2L,k*k,k*k)),
              double(2L*(k*k)), 2L*(k*k),
-             complex(k^6+4*(k*k)+3*k),as.integer(k^6)+4*(k*k)+3L*k,
+             complex(k^6+4*(k*k)+3*k),as.integer(k^6)+4L*(k*k)+3L*k,
              1L,0L)
     if (hvhares[[14]] != 0) stop('Error executing hvha_()')
     hv[1L:((k*(k+1L))%/%2L),1L:(k*k),1L:(k*k)] = hvhares[[8]]
-    hvdadlres = .C('hvdadl_', t, par[1L:(k*k)],
+    hvdadlres = .C(hvdadl_, t, par[1L:(k*k)],
               k, par[((k*k)+k+1L):npar],
               P,invP,Lambda, array(0., c((k*(k+1L))%/%2L,k*k,(k*(k+1L))%/%2L)),
               double(4L*(k*k)), 4L*(k*k),
@@ -175,7 +175,7 @@ ouhess = function (par, t, ...) {
     hv[1L:((k*(k+1L))%/%2L),(k*k+k+1L):npar,1L:(k*k)] =
         aperm(hv[1L:((k*(k+1L))%/%2L),1L:(k*k),(k*k+k+1L):npar] <- hvdadlres[[8]], c(1L,3L,2L))
     hv[1L:((k*(k+1L))%/%2L),(k*k+k+1L):npar,(k*k+k+1L):npar] =
-        .C('hvhl_', t, k, par[((k*k)+k+1L):npar],
+        .C(hvhl_, t, k, par[((k*k)+k+1L):npar],
            P, invP, Lambda,
            double(4L*k*k), 4L*k*k,
            complex(2L*k*k), 2L*k*k,
@@ -186,15 +186,15 @@ ouhess = function (par, t, ...) {
     hw = array(0., c(k,npar,npar))
     hw[1L:k,1L:(k*k),(k*k+1L):(k*k+k)] =
         aperm(hw[1L:k,(k*k+1L):(k*k+k),1L:(k*k)]<-
-                  .C('hwdthetada_', k,
-                     .C('dphida_', t, k,
+                  .C(hwdthetada_, k,
+                     .C(dphida_, t, k,
                         P,invP,Lambda,
                         matrix(0.,k*k,k*k),
                         complex(as.integer(k^4)+k*k+2L),as.integer(k^4)+k*k+2L)[[6]],
                      array(0., c(k,k,k*k)))[[3]],
               perm=c(1L,3L,2L))
     hw[1L:k,1L:(k*k),1L:(k*k)] =
-        .C('hwha_', k, hphiha, par[((k*k)+1L):(k*k+k)],
+        .C(hwha_, k, hphiha, par[((k*k)+1L):(k*k+k)],
            array(0., c(k,k*k,k*k)))[[4]]
     hw
   },
