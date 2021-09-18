@@ -10,6 +10,7 @@ License: GPL-3
 RoxygenNote: 7.1.2
 VignetteBuilder: utils
 Encoding: UTF-8
+Depends: R (>= 3.3.0)
 Imports:
     Rcgmin,
     lbfgsb3c,
