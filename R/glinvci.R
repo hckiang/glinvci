@@ -489,6 +489,15 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
       stop("`regimes` cannot and need not be specified when `parfns` contains only one function")
     regimes = list(c(start=tree$edge[1,1], fn=1))
   }
+  ## Duplicate parfns, parjacs and parhess so it doesn't alter the user's own function when
+  ## we mess with their environment. Then attach a child environment.
+  for (L in c('parfns','parjacs','parhess')) {
+    assign(L, lapply(get(L), function (f) {
+      g = rlang::duplicate(f)
+      environment(g) = rlang::child_env(environment(g))
+      g
+    }))
+  }
   pardims  = as.integer(unlist(pardims))
   modtpl   = glinv_gauss(tree, 0, 1, X=NULL)
   if (! is.null(X)) {
@@ -522,6 +531,8 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
   if (!length(x0) == dimtab[tree$edge[1,1]]) 
     stop(sprintf("The dimension of `x0` must be %d but I got %d",
                  dimtab[tree$edge[1,1]], length(x0)))
+  if (length(pardims) != length(parfns) || length(pardims) != length(parjacs) || length(pardims) != length(parhess))
+    stop("pardims, parfns, parjacs, parhess must have the same length.")
   rawmod     = glinv_gauss(tree, x0, dimtab, X = if (is.null(X)) NULL else tip_purge(X))
   regtags    = tag_regimes(modtpl, unlist(Map(function(x) x['start'], regimes)))
   parfntags  = tag_parfns(regtags, regimes)
@@ -744,7 +755,12 @@ gaussparams = function (mod) {
       pend   = mod$parsegments[fid,'end']
       gstart = mod$gausssegments[nid,'start']
       gend   = mod$gausssegments[nid,'end']
+      environment(fn)[['INFO__']] = list(mod                   = mod,
+                                         node_id               = nid,
+                                         parent_id             = pid,
+                                         parfn_id              = fid)
       res[gstart:gend,] = fn(par[pstart:pend], el, kp, kn)
+      rm('INFO__', pos=environment(fn))
     }
     res
   }
@@ -752,7 +768,8 @@ gaussparams = function (mod) {
 gaussparams_grad = function (mod) {
   tr    = mod$rawmod$apetree
   p     = mod$rawmod$nparams
-  blksiz= 
+  for (fn in mod$parjacs) 
+    environment(fn) = rlang::child_env(environment(fn))
   function (par) {
     res   = matrix(0, nrow=p, ncol=mod$nparams)
     for (j in seq_len(nrow(tr$edge))) {
@@ -767,7 +784,12 @@ gaussparams_grad = function (mod) {
       pend   = mod$parsegments[fid,'end']
       gstart = mod$gausssegments[nid,'start']
       gend   = mod$gausssegments[nid,'end']
+      environment(jacfn)[['INFO__']] = list(mod                        = mod,
+                                           node_id                    = nid,
+                                           parent_id                  = pid,
+                                           parfn_id                   = fid)
       res[gstart:gend,pstart:pend] = jacfn(par[pstart:pend], el, kp, kn)
+      rm('INFO__', pos=environment(jacfn))
     }
     res
   }

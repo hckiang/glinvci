@@ -11,9 +11,9 @@
 #' \subsection{What is missing traits and lost traits}{
 #' A `missing' trait refers to a trait value whose data is missing due to data
 #' collection problems. Fundamentally, they evolves in the same manner as other
-#' traits. An \code{NA} entry in the data deemed `missing'. On the other hand,
+#' traits. An \code{NA} entry in the data is deemed `missing'. On the other hand,
 #' a lost trait is a trait dimension which had ceased to exists during the
-#' evolutionary process. An \code{NA} entry in the data indicates a `lost' trait.
+#' evolutionary process. An \code{NaN} entry in the data indicates a `lost' trait.
 #' }
 #' 
 #' \subsection{Each nodes has their own missing-ness tags}{
