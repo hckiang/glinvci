@@ -16,11 +16,24 @@ sources:
 tasks:
   - setup: |
       if [ -f glinvci/DESCRIPTION ]; then
-          Rscript -e 'dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE); install.packages(c("knitr","testthat","Rcgmin","lbfgsb3c","BB","ape","numDeriv","plyr"), repos="https://cloud.r-project.org", lib=Sys.getenv("R_LIBS_USER"))'
+          Rscript -e 'dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE); install.packages(c("rlang","knitr","testthat","Rcgmin","lbfgsb3c","BB","ape","numDeriv","plyr"), repos="https://cloud.r-project.org", lib=Sys.getenv("R_LIBS_USER"))'
       fi
   - build: |
-      if [ -f glinvci/DESCRIPTION ]; then R CMD build glinvci/; fi
+      if [ -f glinvci/DESCRIPTION ]; then
+          R CMD build glinvci/;
+      fi
   - check: |
-      if [ -f glinvci/DESCRIPTION ]; then R CMD check glinvci_*.tar.gz --as-cran; fi
+      if [ -f glinvci/DESCRIPTION ]; then
+          R CMD check glinvci_*.tar.gz --as-cran;
+      fi
   - updatetarball: |
-      if [ -f glinvci/DESCRIPTION ]; then mkdir tmpclone; cd tmpclone; GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" git clone git@git.sr.ht:~hckiang/glinvci; cd glinvci; git checkout latest-tarballs; cp ../../glinvci_*.tar.gz glinvci_latest_main.tar.gz; git add glinvci_latest_main.tar.gz; git commit -m'Updated latest tarball'; GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" git push origin latest-tarballs; fi
+      if [ -f glinvci/DESCRIPTION ] && ! grep -q "Version.*\\.9...$" glinvci/DESCRIPTION; then
+          mkdir tmpclone
+          cd tmpclone
+          GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" git clone git@git.sr.ht:~hckiang/glinvci
+          cd glinvci
+          git checkout latest-tarballs; cp ../../glinvci_*.tar.gz glinvci_latest_main.tar.gz
+          git add glinvci_latest_main.tar.gz
+          git commit -m'Updated latest tarball'
+          GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" git push origin latest-tarballs
+      fi
