@@ -1,7 +1,7 @@
 Package: glinvci
 Type: Package
 Title: Multivariate Phylogenetic Comparative Methods with Confidence Intervals Support
-Version: 1.1.0
+Version: 1.1.1
 Date: 2021-09-18
 Authors@R: c(person(family="Kiang", given="Hao Chi", role=c("cre","aut"), email="hello@hckiang.com"))
 Maintainer: Hao Chi Kiang <hello@hckiang.com>
@@ -10,6 +10,7 @@ License: GPL-3
 RoxygenNote: 7.1.2
 VignetteBuilder: utils
 Encoding: UTF-8
+URL: https://git.sr.ht/~hckiang/glinvci, https://github.com/hckiang/glinvci
 Depends: R (>= 3.3.0)
 Imports:
     Rcgmin,
