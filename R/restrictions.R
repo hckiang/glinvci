@@ -521,7 +521,7 @@ human_name_to_cmdchr = list(
 #' print(LIK == LIK_unrestricted)
 #' # [1] TRUE
 #' 
-#' ### --- STEP 5: Confirm the convenience function is indeed the same as constructing everything manually
+#' ### --- STEP 5: Confirm the this is indeed the same as making everything manually
 #' mod_manual = glinv(tr, x0, X,
 #'                    pardims  = nparams_ou_fixedtheta_diagSig(k),
 #'                    parfns   = ou_fixedtheta_diagSig(oupar,   theta=c(3,1)),
