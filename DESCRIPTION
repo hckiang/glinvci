@@ -7,7 +7,7 @@ Authors@R: c(person(family="Kiang", given="Hao Chi", role=c("cre","aut"), email=
 Maintainer: Hao Chi Kiang <hello@hckiang.com>
 Description: The glinvci package provides a framework for computing the maximum-likelihood estimates and asymptotic confidence intervals of a class of continuous-time Gaussian branching processes, including the Ornstein-Uhlenbeck branching process, which is commonly used in phylogenetic comparative methods. The framework is designed to be flexible enough that the user can easily specify their own parameterisation and obtain the maximum-likelihood estimates and confidence intervals of their own parameters.
 License: GPL-3
-RoxygenNote: 7.1.1
+RoxygenNote: 7.1.2
 VignetteBuilder: utils
 Encoding: UTF-8
 Imports:
@@ -16,7 +16,8 @@ Imports:
     BB,
     ape,
     numDeriv,
-    plyr
+    plyr,
+    rlang
 Suggests:
     utils,
     testthat
