@@ -42,7 +42,7 @@ parameters to the Gaussian parametersation.
 \code{oujac} accepts the same arguments as \code{oupar} and returns the
 Jacobian matrix of \code{oupar}.
 
-\code{ouhess} returns accepts the same arguments as \code{oupar}
+\code{ouhess} accepts the same arguments as \code{oupar}
 and returns all the second derivatives \code{oupar}. The returned
 values are consistent with the format required by \code{link{glinv}}.
 }
