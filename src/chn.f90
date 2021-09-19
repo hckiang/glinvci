@@ -8,6 +8,9 @@ contains
   ! this subroutine.
   subroutine curvifyupdate(H, HV, Hw, HPhi, npar, ku, kv, &
        & dlikdv, dlikdw, dlikdphi, wsp) bind(C, name="curvifyupdate_")
+    integer(c_int) ku, kv, npar
+    real(c_double) H, HV, Hw, HPhi, &
+       & dlikdv, dlikdw, dlikdphi, wsp
     dimension H(npar, npar), HV((ku*(ku+1))/2,npar,npar), Hw(ku,npar,npar), HPhi(ku*kv,npar,npar), &
          & dlikdv(ku,ku), dlikdw(ku), dlikdphi(ku,kv), wsp(2*(npar**2)+1)
     target wsp

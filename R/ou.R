@@ -148,13 +148,13 @@ ouhess = function (par, t, ...) {
   P = as.complex(eig[['vectors']])
   invP = as.complex(solve(eig[['vectors']]))
   Lambda = as.complex(eig[['values']])
-  res = .C(hphiha_, t, par[1L:(k*k)],
+  res = .C(hphiha_, t,
            k, P,invP,Lambda,
            array(0.0, c(k*k,k*k,k*k)),
            complex(k^6+2L*(k*k)+3), integer(k^6+2L*(k*k)+3),
            0L)
-  if (res[[10]] != 0) stop('Error executing hphiha_()')
-  hphiha = res[[7]]
+  if (res[[9]] != 0) stop('Error executing hphiha_()')
+  hphiha = res[[6]]
   r = list('V' = {
     hv = array(0., c((k*(k+1L))%/%2L, npar, npar))
     hvhares = .C(hvha_, t, sig, par[1L:(k*k)],

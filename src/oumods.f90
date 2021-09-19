@@ -31,6 +31,7 @@ contains
   end subroutine
   
   recursive subroutine zI1(t,c,alpha,beta,r) bind(C, name='zI1_')
+    real(c_double) t, alpha, beta
     complex(c_double_complex) c,r,    x,y,z
     if (mod2small(c) == 1) then
        r = beta*r+alpha*cmplx((t**2.0_c_double)/2.0_c_double,0.0_c_double,kind(1._c_double))
@@ -45,6 +46,7 @@ contains
   end subroutine
 
   recursive subroutine zI2(t,c,alpha,beta,r)
+    real(c_double) t,alpha,beta
     complex(c_double_complex) c, r,   x,y,z
     if (mod2small(c) == 1) then
        r = beta * r + alpha * ((t**3.0_c_double) / 3.0_c_double)
@@ -60,6 +62,7 @@ contains
   ! Convert cholesky decomposition to the original matrix
   ! wsp at least k^2
   recursive subroutine dunchol(sig_x,k,wsp,lwsp,sig,info) bind(C,name="unchol_")
+    real(c_double) sig_x, wsp, sig
     integer(c_int) :: lwsp, k, info
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
@@ -77,6 +80,7 @@ contains
   ! Same as dunchol but the diagonals of sig_x is now parameterised by the logarithm.
   ! wsp at least k^2
   recursive subroutine dlnunchol(sig_x,k,wsp,lwsp,sig,info) bind(C,name="lnunchol_")
+    real(c_double) :: sig_x, wsp, sig
     integer(c_int) :: lwsp, k, info
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
@@ -98,6 +102,7 @@ contains
   ! info /= 0 with the content of P, Lambda and invP undefined on exit.
   ! Wsp at least 2*(k**2), zwsp at least 2*(k**2)
   recursive subroutine zeiginv(A,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="zeiginv_")
+    real(c_double) A, wsp
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) k,lwsp,lzwsp,info,ipiv(k)
     dimension A(k,k), zwsp(lzwsp), wsp(lwsp), P(k,k), invP(k,k), Lambda(k), LR(k),LI(k)
@@ -148,6 +153,8 @@ contains
 
   ! Compute exp(-H * t) using eigen decomposition PLP^-1 of H
   recursive subroutine d0phi (t, k, P, invP, Lambda, Phi, zwsp) bind(C, name="d0phi_")
+    real(c_double) t, Phi
+    integer(c_int) k
     complex(c_double_complex) P, invP, Lambda, zwsp
     dimension P(k,k), invP(k,k), Lambda(k), Phi(k,k), zwsp(k**2)
     target zwsp
@@ -178,6 +185,7 @@ contains
   !           are read and untouched.
   recursive subroutine d0geouvwphi(A,k,t,theta,sig_x,V,w,Phi,P,invP,Lambda,wsp,lwsp,&
                        & zwsp,lzwsp,eigavail,info) bind(C, name="d0geouvwphi_")
+    real(c_double) A,t,theta,sig_x,V,w,Phi,wsp
     complex(c_double_complex) P, invP, Lambda
     integer(c_int) :: info, k, eigavail, lwsp, lzwsp
     dimension A(k,k), wsp(lwsp), V((k*(k+1))/2), w(k), Phi(k,k), Lambda(k), &
@@ -208,7 +216,6 @@ contains
   ! into `rAP` stored in packed form. Strictly upper/lower part of zA is not referenced.
   recursive subroutine z2dtrttp(uplo,k,zA,rAP,wsp)
     complex(c_double_complex) zA
-    integer(c_int) lda
     character uplo
     dimension wsp(k**2), zA(k**2), rAP((k*(k+1))/2)
     external dtrttp
@@ -218,8 +225,9 @@ contains
 
   ! zwsp at least 2*k**2, wsp at least k**2. Output stored in V.
   recursive subroutine ouv(t,k,sig,P,invP,Lambda,V,zwsp,lzwsp,wsp,lwsp) bind(C, name="ouv_")
+    real(c_double) t,sig,V,wsp
     complex(c_double_complex) P, invP, Lambda, zwsp
-    integer(c_int) lzwsp,lwsp
+    integer(c_int) k,lzwsp,lwsp
     dimension sig(k,k), P(k,k), invP(k,k), Lambda(k), V((k*(k+1))/2), zwsp(lzwsp), wsp(lwsp)
     target zwsp
     complex(c_double_complex), pointer :: ztmp(:,:), ztmp2(:,:)
@@ -274,6 +282,7 @@ contains
 
   ! lzwsp at least 2*k^2. 
   recursive subroutine realhesschgbasis(X,P,invP,m,k,zwsp,lzwsp,out) bind(C, name='realhesschgbasis_')
+    real(c_double) out
     complex(c_double_complex) X, P, invP, zwsp, d
     integer(c_int) :: lzwsp, a1, a2, b1, b2, w1, w2, xi1, xi2, j, m, k
     dimension X(m,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out(m,k**2,k**2)
@@ -338,6 +347,7 @@ contains
   ! a symmetric matrix for each j, and out(:,a,b) is symmetric itself. In the return, out(:,a,b)
   ! is in packed format but out(:,a,b) isn't packed.
   recursive subroutine dprealsymhesschgbasis(X,P,invP,sqrtm,k,zwsp,lzwsp,out) bind(C, name='dprealsymhesschgbasis_')
+    real(c_double) out
     complex(c_double_complex) X, P, invP, zwsp, d
     integer(c_int) :: sqrtm, lzwsp, a1, a2, b1, b2, w1, w2, xi1, xi2, i,j,k,c
     dimension X(sqrtm**2,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out((sqrtm*(sqrtm+1))/2,k**2,k**2)
@@ -408,6 +418,7 @@ contains
   ! Same as realhesschgbasis, except that in this function we don't assume the out(j,:,:) being
   ! a symmetric matrix for each j.
   recursive subroutine realdblasymchgbasis(X,P,invP,m,k,zwsp,lzwsp,out) bind(C, name='realdblasymchgbasis_')
+    real(c_double) out
     complex(c_double_complex) X, P, invP, zwsp, d
     integer(c_int) :: lzwsp, a1, a2, b1, b2, w1, w2, xi1, xi2, j, m, k
     dimension X(m,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out(m,k**2,k**2)
@@ -500,11 +511,12 @@ contains
 
   !! wsp at least 2*(k^2); zwsp at least (k^4+2*k^2)
   recursive subroutine dvda(t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="dvda_")
-    integer(c_int) lwsp,lzwsp,eigavail
+    real(c_double) t, Psi, H, out, wsp
+    integer(c_int) k,lwsp,lzwsp,eigavail,info
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), out(((k*(k+1))/2),k**2)
     target :: zwsp, wsp
-    complex(c_double_complex), pointer :: tmp(:,:), D(:,:), thisD(:,:), X(:,:), PsiB(:,:)
+    complex(c_double_complex), pointer :: D(:,:), thisD(:,:), X(:,:), PsiB(:,:)
     complex(c_double_complex) :: z,c
     integer(c_int) a1,a2
     if (eigavail==0) then
@@ -544,7 +556,8 @@ contains
 
   ! wsp: 3*k^2, lzwsp: 2*k^2
   recursive subroutine dvdsigx(t,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name="dvdsigx_")
-    integer(c_int) lwsp,lzwsp
+    real(c_double) t, sig_x, out, wsp
+    integer(c_int) k,lwsp,lzwsp,info
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension sig_x((k*(k+1))/2),P(k,k),invP(k,k),Lambda(k),out((k*(k+1))/2,(k*(k+1))/2),zwsp(lzwsp),wsp(lwsp)
     pointer :: UijLT(:,:), sig_x_unpk(:,:)
@@ -586,8 +599,9 @@ contains
 
   ! wsp at least k**2. zwsp at least k**2.
   recursive subroutine dwdtheta(t,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp) bind(C, name="dwdtheta_")
+    real(c_double) t, out, wsp
     complex(c_double_complex) P, invP, Lambda, zwsp
-    integer(c_int) lwsp, lzwsp
+    integer(c_int) k, lwsp, lzwsp
     dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp) !ipiv(k)
     target wsp
     real(c_double), pointer :: tmp(:,:)
@@ -602,6 +616,7 @@ contains
 
   ! zwsp at least k^4+k^2+2
   recursive subroutine dphida(t,k,P,invP,Lambda,out,zwsp,lzwsp) bind(C, name="dphida_")
+    real(c_double) t, out
     integer(c_int) k, lzwsp
     complex(c_double_complex) P,invP,Lambda,zwsp
     dimension P(k,k), invP(k,k), Lambda(k), zwsp(lzwsp), out(k**2,k**2)
@@ -630,6 +645,8 @@ contains
   end subroutine
 
   recursive subroutine dwda(k,dphidaout,theta,out) bind(C,name="dwda_")
+    real(c_double) dphidaout, theta, out
+    integer(c_int) k
     dimension dphidaout(k**2,k**2), theta(k), out(k,k**2)
     external dgemv
     do m=1,k**2
@@ -639,8 +656,9 @@ contains
 
   ! Function for calculating the simple OU jacobian.
   recursive subroutine ougejac(t,k,hts,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,eigavail,djac,info) bind(C,name="ougejac_")
+    real(c_double) t, hts, wsp,djac
     complex(c_double_complex) P, invP, Lambda, zwsp
-    integer(c_int) lwsp,lzwsp,eigavail
+    integer(c_int) k,lwsp,lzwsp,eigavail,info
     dimension hts(k**2+k+(k*(k+1))/2), P(k,k), invP(k,k), &
          & Lambda(k), wsp(lwsp), zwsp(lzwsp), djac(k**2+k+(k*(k+1))/2, k**2+k+(k*(k+1))/2)
     target zwsp, wsp, hts
@@ -736,6 +754,8 @@ contains
   end subroutine
 
   recursive subroutine dchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dchnunchol_")
+    real(c_double) DFDH, L, DFDL
+    integer(c_int) m, k
     dimension DFDH(m,k**2), L((k*(k+1))/2), DFDL(m,(k*(k+1))/2)
     n=1
     do j=1,k
@@ -749,6 +769,8 @@ contains
   end subroutine
   
   recursive subroutine dlnchnunchol(DFDH, L, m, k, DFDL) bind(C, name="dlnchnunchol_")
+    real(c_double) DFDH, L, DFDL
+    integer(c_int) m, k
     dimension DFDH(m,k**2), L((k*(k+1))/2), DFDL(m,(k*(k+1))/2)
     n=1
     do j=1,k
@@ -780,6 +802,7 @@ contains
 
   ! Compute the integral of e^{av} I_0(v,b) I_0(v, c) w.r.t. v within [0,t].
   subroutine zitglei0i0 (t, za, zb, zc, zout) bind(C, name='zitglei0i0_')
+    real(c_double) t
     complex(c_double_complex)  :: za, zb, zc, zout
     zout = cmplx(0._c_double,0._c_double,kind(1._c_double))
     if (mod2small(za) == 1) then
@@ -820,6 +843,7 @@ contains
   end subroutine
 
   recursive subroutine zK0 (t, za, zb, alpha, beta, out)    bind(C, name="zK0_")
+    real(c_double) t, alpha, beta
     complex(c_double_complex) za, zb, out, tmp
     tmp = cmplx(0._c_double,0._c_double,kind(1._c_double))
     if (mod2small(zb) == 1) then
@@ -832,6 +856,7 @@ contains
   end subroutine
 
   recursive subroutine zK1 (t, za, zb, alpha, beta, out)    bind(C, name="zK1_")
+    real(c_double) t, alpha, beta
     complex(c_double_complex) za, zb, out, tmp
     tmp = cmplx(0._c_double,0._c_double,kind(1._c_double))
     if (mod2small(zb) == 1) then
@@ -847,7 +872,8 @@ contains
 
   ! wsp at least 2*(k**2), zwsp at least (2*(k**2)+3*k)
   recursive subroutine hvhadir (t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="hvhadir_")
-    integer(c_int) lwsp,lzwsp,eigavail
+    real(c_double) t, Psi, H, wsp
+    integer(c_int) k,lwsp,lzwsp,eigavail,info
     complex(c_double_complex) P,invP,Lambda,zwsp,out,    d
     dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), &
          & out(k**2,k**2,k**2)
@@ -937,8 +963,9 @@ contains
 
   ! wsp at least 2*(k**2), zwsp at least k^6 + 4*(k**2)+3*k
   recursive subroutine hvha (t,Psi,H,k,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,eigavail,info) bind(C, name="hvha_")
-    integer(c_int) lwsp,lzwsp,eigavail
-    complex(c_double_complex) P,invP,Lambda,zwsp
+    real(c_double) t, Psi, H, out, wsp
+    integer(c_int) k, lwsp, lzwsp, eigavail, info
+    complex(c_double_complex) P, invP, Lambda, zwsp
     dimension Psi(k,k), H(k,k), P(k,k), invP(k,k), Lambda(k), wsp(lwsp), zwsp(lzwsp), &
          & out((k*(k+1))/2,k**2,k**2)
     target :: zwsp
@@ -951,7 +978,8 @@ contains
 
   ! wsp at least 4*(k^2), lzwsp at least k^4 + 2*k^2
   recursive subroutine hvdadl (t,H,k,sig_x,P,invP,Lambda,out,wsp,lwsp,zwsp,lzwsp,info) bind(C, name='hvdadl_')
-    integer(c_int) lwsp, lzwsp
+    real(c_double) t, H, sig_x, out, wsp
+    integer(c_int) k, lwsp, lzwsp, info
     complex(c_double_complex) P, invP, Lambda, zwsp
     dimension sig_x((k*(k+1))/2), H(k,k), P(k,k), invP(k,k), Lambda(k), out((k*(k+1))/2,k*k,(k*(k+1))/2),&
          & wsp(lwsp), zwsp(lzwsp)
@@ -1000,15 +1028,18 @@ contains
   end subroutine
 
   recursive subroutine hwdthetada (k, dphidaout, out) bind(C, name="hwdthetada_")
+    integer(c_int) k
+    real(c_double) dphidaout, out
     dimension dphidaout(k**2,k**2), out(k,k,k**2)
     out = - reshape(dphidaout, [k,k,k**2])
   end subroutine
 
   ! lwsp at least (k^6) + 2*(k^2) + 3
-  recursive subroutine hphiha (t,H,ku,P,invP,Lambda,out,zwsp,lzwsp,info) bind(C, name="hphiha_")
-    integer(c_int) lwsp, lzwsp,  a1,a2,b1,b2
+  recursive subroutine hphiha (t,ku,P,invP,Lambda,out,zwsp,lzwsp,info) bind(C, name="hphiha_")
+    real(c_double) t, out
+    integer(c_int) lzwsp,  a1,a2,b1,b2, info, ku
     complex(c_double_complex) P, invP, Lambda, zwsp
-    dimension H(ku,ku), P(ku,ku), invP(ku,ku), Lambda(ku), out(ku**2,ku**2,ku**2), zwsp(lzwsp)
+    dimension P(ku,ku), invP(ku,ku), Lambda(ku), out(ku**2,ku**2,ku**2), zwsp(lzwsp)
     target zwsp
     complex(c_double_complex), pointer :: dirh(:,:,:), I01, I02, fac1
     dirh(1:(ku**2),1:(ku**2),1:(ku**2)) => zwsp(1:(ku**6))
@@ -1053,6 +1084,8 @@ contains
   end subroutine
 
   recursive subroutine hwha(k,hphihaout,theta,out) bind(C,name="hwha_")
+    real(c_double) hphihaout,theta,out
+    integer(c_int) k
     dimension hphihaout(k**2,k**2,k**2), theta(k), out(k,k**2,k**2)
     external dgemv
     do n=1,k**2
@@ -1065,7 +1098,8 @@ contains
 
   ! zwsp at least 2*k^2, wsp at least 4*(k^2)
   recursive subroutine hvhl(t, k, sig_x, P, invP, Lambda, wsp, lwsp, zwsp, lzwsp, out) bind(C,name="hvhl_")
-    integer(c_int) lwsp, lzwsp
+    real(c_double) t, sig_x, wsp, out
+    integer(c_int) k,lwsp, lzwsp
     complex(c_double_complex) zwsp, P, invP, Lambda
     dimension sig_x((k*(k+1))/2), out((k*(k+1))/2,(k*(k+1))/2,(k*(k+1))/2), P(k,k), invP(k,k), Lambda(k), &
          & wsp(lwsp), zwsp(lzwsp)
@@ -1111,6 +1145,8 @@ contains
   end subroutine
 
   recursive subroutine houchnsymh (Horig, m, k, nparorig, ithis, out)  bind(C, name='houchnsymh_')
+    real(c_double) Horig, out
+    integer(c_int) m, k, nparorig, ithis
     dimension Horig(m,nparorig,nparorig), out(m,nparorig-k*k+(k*(k+1))/2,nparorig-k*k+(k*(k+1))/2)
     ! Me versus me
     idxb = 1
@@ -1216,6 +1252,8 @@ contains
   
   recursive subroutine houspdh(Horig, par, djac,ildjac,joffset, m, k, npar_orig, npar_new, &
                    & ithis, out) bind(C,name='houspdh_')
+    real(c_double) Horig, par, djac, out
+    integer(c_int) ildjac, joffset, m, k, ithis, npar_orig, npar_new
     dimension Horig(m,npar_orig,npar_orig), par((k*(k+1))/2), djac(ildjac,npar_orig), out(m,npar_new,npar_new)
     nek = 1
     do iell = 1,k
@@ -1300,6 +1338,8 @@ contains
   end subroutine
 
   recursive subroutine houlnspdh(Horig, par,djac,ildjac,joffset, m,k, npar_orig, npar_new, ithis, out) bind(C,name='houlnspdh_')
+    real(c_double) Horig, par, djac, out
+    integer(c_int) ildjac, joffset, m, k, npar_orig, npar_new, ithis
     dimension Horig(m,npar_orig,npar_orig), par((k*(k+1))/2), djac(ildjac,npar_orig), out(m,npar_new,npar_new)
     !print *,ildjac,joffset,m,k,npar_orig,npar_new,ithis
     nek = 1
@@ -1423,6 +1463,8 @@ contains
   ! This routine is disgusting... :(
   recursive subroutine hchnlndiag(Hnew, nnew, Hold, nold, par, &
                       & djacthis, ildjac, joffset, m, istart, k) bind(C, name ="hchnlndiag_")
+    real(c_double) Hnew, Hold, par, djacthis
+    integer(c_int) nnew, nold, ildjac, joffset, m, istart, k
     dimension Hnew(m, nnew, nnew), Hold(m,nold,nold), par(k), djacthis(ildjac,k)
     ijdiag = 0_c_int
     ijo = 1_c_int
@@ -1471,6 +1513,8 @@ contains
   end subroutine
 
   subroutine diag2ltri(d, k, out) bind(C, name="diag2ltri_")
+    real(c_double) d, out
+    integer(c_int) k
     dimension d(k), out((k*(k+1))/2)
     io = 1_c_int
     id = 1_c_int

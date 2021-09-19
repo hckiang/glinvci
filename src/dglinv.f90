@@ -118,6 +118,8 @@ contains
   ! end subroutine
 
   recursive subroutine diagone (A, k)                  bind(C, name="diagone_")
+    real(c_double) A
+    integer(c_int) k
     dimension A(k,k)
     do j = 1, k
        A(j,j) = 1.0_c_double
@@ -125,6 +127,8 @@ contains
   end subroutine
 
   recursive subroutine diagoneclr (A, k)               bind(C, name="diagoneclr_")
+    real(c_double) A
+    integer(c_int) k
     dimension A(k,k)
     A(:,:) = 0.0_c_double
     do j = 1, k
@@ -133,6 +137,8 @@ contains
   end subroutine
 
   recursive subroutine gesylcpy (dst, src, k)            bind(C, name="gesylcpy_")
+    real(c_double) dst, src
+    integer(c_int) k
     intent(in) :: k, src;    intent(out) :: dst
     dimension src(k,k), dst((k*(k+1))/2)
     n = 1
@@ -144,6 +150,8 @@ contains
     enddo
   end subroutine
   recursive subroutine sylgecpy (dst, src, k)            bind(C, name="sylgecpy_")
+    real(c_double) dst, src
+    integer(c_int) k
     intent(in) :: k, src;    intent(out) :: dst
     dimension src((k*(k+1))/2), dst(k,k)
     n = 1
@@ -156,6 +164,7 @@ contains
     enddo
   end subroutine
   recursive subroutine lsylgecpy (dst, src, k)            bind(C, name="lsylgecpy_")
+    real(c_double) dst, src
     intent(in) :: k, src;    intent(out) :: dst
     integer(c_long) k, i, j
     dimension src((k*(k+1))/2), dst(k,k)
@@ -196,8 +205,11 @@ contains
   end function
 
   recursive subroutine mergintern ( &
-       Vro, w, Phi, kv, ku, c, gam, o, d, H, b, V, solV, &
-       cout, gamout, oout, dout, info)
+       & Vro, w, Phi, kv, ku, c, gam, o, d, H, b, V, solV, &
+       & cout, gamout, oout, dout, info)
+    integer(c_int) kv, ku, info
+    real(c_double) Vro, w, Phi, c, gam, o, d, H, b, V, solV, &
+       & cout, gamout, oout, dout
     intent(in)    :: kv, ku, Vro, w, Phi, c, d, gam, o
     intent(out)   :: H, b, V, solV
     intent(inout) :: cout, dout, gamout, oout
@@ -249,6 +261,8 @@ contains
   recursive subroutine ndmerg(&
        V, w, Phi, kv, ku, c, gam, o, d, &
        cout, gamout, oout, dout, info)                  bind(C, name="ndmerg_")
+    real(c_double) V, w, Phi, c, gam, o, d, cout, gamout, oout, dout
+    integer(c_int) kv, ku, info
     dimension V(ku, ku), w(ku), Phi(ku, kv), gam(ku), o(ku, ku), gamout(kv), oout(kv, kv), &
          & H(ku, ku), b(ku), Lamb(ku, ku), solV(ku, ku)
     call mergintern ( &
@@ -256,10 +270,15 @@ contains
          cout, gamout, oout, dout, info)
   end subroutine
   recursive subroutine dmerg ( &
-       V, w, Phi, kv, ku, c, gam, o, d, &
-       cout, gamout, oout, dout, &
-       a, Hphi, Lamb, &
-       dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="dmerg_")
+       & V, w, Phi, kv, ku, c, gam, o, d, &
+       & cout, gamout, oout, dout, &
+       & a, Hphi, Lamb, &
+       & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="dmerg_")
+    integer(c_int) kv, ku, info
+    real(c_double) V, w, Phi, c, gam, o, d, &
+       & cout, gamout, oout, dout, &
+       & a, Hphi, Lamb, &
+       & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev
     dimension V(ku, ku), w(ku), Phi(ku, kv), gam(ku), o(ku, ku), gamout(kv), oout(kv, kv), &
          a(ku), Hphi(ku, kv), Lamb(ku, ku), &
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
@@ -283,19 +302,24 @@ contains
   end subroutine
 
   recursive subroutine hmerg ( &
-       V, w, Phi, kv, ku, c, gam, o, d, &
-       cout, gamout, oout, dout, &
-       a, b, solV, H, Hphi, Lamb, &
-       dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="hmerg_")
+       & V, w, Phi, kv, ku, c, gam, o, d, &
+       & cout, gamout, oout, dout, &
+       & a, b, solV, H, Hphi, Lamb, &
+       & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="hmerg_")
+    integer(c_int) kv, ku, info
+    real(c_double) V, w, Phi, c, gam, o, d, &
+       & cout, gamout, oout, dout, &
+       & a, b, solV, H, Hphi, Lamb, &
+       & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev
     dimension V(ku, ku), w(ku), Phi(ku, kv), gam(ku), o(ku, ku), gamout(kv), oout(kv, kv), &
-         a(ku), Hphi(ku, kv), Lamb(ku, ku), &
+         & a(ku), Hphi(ku, kv), Lamb(ku, ku), &
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
          & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku), &
          & dldvev(ku, ku, ku, ku), H(ku, ku), b(ku), solV(ku, ku)
     call mergintern ( &
-         V, w, Phi, kv, ku, c, gam, o, d, H, b, Lamb, solV, &
-         cout, gamout, oout, dout, info)
+         & V, w, Phi, kv, ku, c, gam, o, d, H, b, Lamb, solV, &
+         & cout, gamout, oout, dout, info)
     HPhi = matmul(H, Phi)
     a = matmul(Lamb, b) + w
     call dldv(Lamb, ku, solV, dldvev)
@@ -310,6 +334,8 @@ contains
   end subroutine
 
   recursive subroutine tcgodintern (V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)   bind(C, name="tcgodintern_")
+    real(c_double) V, w, Phi, x, c, gam, o, d, b, solV
+    integer(c_int) kv, ku, info
     dimension V(ku, ku), w(ku), x(ku), Phi(ku, kv), gam(kv), o(kv, kv), b(ku), solV(ku, ku)
     allocatable :: Lb(:), tmp(:,:)
     external dpotrf, dpotri, dgemv
@@ -350,12 +376,17 @@ contains
   end subroutine
   
   recursive subroutine ndtcgod (V, w, Phi, x, kv, ku, c, gam, o, d, info)   bind(C, name="ndtcgod_")
+    integer(c_int) kv, ku, info
+    real(c_double) V, w, Phi, x, c, gam, o, d
     dimension V(ku, ku), w(ku), Phi(ku, kv), x(ku), gam(kv), o(kv, kv), b(ku), solV(ku, ku)
     call tcgodintern(V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)
   end subroutine
 
   recursive subroutine dtcgod (V, w, Phi, x, kv, ku, c, gam, o, d, &
-       dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="dtcgod_")
+       & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="dtcgod_")
+    integer(c_int) kv, ku, info
+    real(c_double) V, w, Phi, x, c, gam, o, d, &
+         & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev
     dimension V(ku, ku), w(ku), x(ku), Phi(ku, kv), gam(kv), o(kv, kv), &
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
@@ -369,6 +400,9 @@ contains
   end subroutine
   recursive subroutine htcgod (V, w, Phi, x, kv, ku, c, gam, o, d, solV, b, &
        dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, info)   bind(C, name="htcgod_")
+    real(c_double) V, w, Phi, x, c, gam, o, d, solV, b, dodvev, dodphiev, &
+         & dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev
+    integer(c_int) kv, ku, info
     dimension V(ku, ku), w(ku), x(ku), Phi(ku, kv), gam(kv), o(kv, kv), &
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
@@ -401,6 +435,8 @@ contains
 
 
   recursive subroutine phygausslik (c, gam, o, d, x0, k0, k, lik) bind(C, name="phygausslik_")
+    real(c_double) c, gam, o, d, x0, lik
+    integer(c_int) k0, k
     intent(in) :: c, gam, o, d, x0, k0, k;   intent(out) :: lik
     dimension gam(k0), x0(k0), o(k0,k0)
     lik = (c + k*log(2.0_c_double * PI) + d) / (-2.0_c_double) &
@@ -408,6 +444,8 @@ contains
   end subroutine
   
   recursive subroutine ndinv (solA, ku, dA)    bind(C, name="ndinv_")
+    real(c_double) solA, dA
+    integer(c_int) ku
     intent(in) :: ku, solA;   intent(out) :: dA
     dimension solA(ku,ku), dA(ku,ku,ku,ku)
     do j=1,ku
@@ -425,6 +463,8 @@ contains
   !! dldv(1,1,1,1) and dldv(2,2,2,2) are the same in an example, so there is some symmetry here,
   !! I guess?
   recursive subroutine dldv (Lamb, ku, solV, out)  bind(C, name="dldv_")
+    integer(c_int) ku
+    real(c_double) Lamb, solV, out
     intent(in) :: Lamb, ku, solV;   intent(out) :: out
     dimension Lamb(ku,ku), solV(ku,ku), out(ku,ku,ku,ku), tmp(ku,ku,ku,ku)
     call ndinv(solV, ku, tmp)
@@ -437,6 +477,8 @@ contains
   end subroutine
 
   recursive subroutine dodv (dLdVev, Phi_u, ScOmega, kv, ku, out)  bind(C, name="dodv_")
+    integer(c_int) kv, ku
+    real(c_double) dLdVev, Phi_u, ScOmega, out
     intent(in) :: dLdVev, Phi_u, ScOmega, kv, ku;   intent(out) :: out
     dimension ScOmega(ku,ku), dLdVev(ku,ku,ku,ku), Phi_u(ku,kv), out(kv, kv, ku, ku), A(ku,kv)
     A = matmul(ScOmega, Phi_u)
@@ -448,6 +490,8 @@ contains
   end subroutine
 
   recursive subroutine dodphi (ScOmega, H_u, Phi_u, kv, ku, out) bind(C, name="dodphi_")
+    integer(c_int) kv, ku
+    real(c_double) ScOmega, H_u, Phi_u, out
     intent(in) :: ScOmega, H_u, Phi_u, kv, ku;   intent(out) :: out
     dimension ScOmega(ku,ku), Phi_u(ku,kv), H_u(ku,ku), out(kv,kv,ku,kv), &
          & RM(kv,ku), LM(kv, ku), B(ku,ku)
@@ -462,12 +506,16 @@ contains
   end subroutine
 
   recursive subroutine dgamdw (HPhi, ScOmega, kv, ku, out) bind(C, name="dgamdw_")
+    integer(c_int) kv, ku
+    real(c_double) HPhi, ScOmega, out
     intent(in) :: HPhi, ScOmega, kv, ku;    intent(out) :: out
     dimension ScOmega(ku,ku), HPhi(ku,kv), out(kv,ku)
     out(:,:) = - matmul(transpose(HPhi), ScOmega)
   end subroutine
 
   recursive subroutine dgamdphi (H_u, b_u, kv, ku, out)  bind(C, name="dgamdphi_")
+    integer(c_int) kv, ku
+    real(c_double) H_u, b_u, out
     intent(in) :: H_u, b_u, kv, ku;  intent(out) :: out
     dimension H_u(ku,ku), b_u(ku), out(kv,ku,kv), d(ku)
     out = 0._c_double
@@ -482,6 +530,8 @@ contains
     !!  1. If u is a tip, then dldVev[k,l,i,j] == - d(inv(Vu)[k,l])/d(Vu[j,i]).
     !!     Notice the negative and the transpose at denominator.
     !!  2. If u is non-tip, then dldVev[k,l,i,j] == d(Lambda[k,l])/d(Vu[i,j]).
+    integer(c_int) kv, ku
+    real(c_double) dLdVev, Phi_u, ScOmega, b_u, out
     intent(in) :: dLdVev, Phi_u, ScOmega, b_u, kv, ku;  intent(out) :: out
     dimension dLdVev(ku,ku,ku,ku), Phi_u(ku,kv), ScOmega(ku,ku), b_u(ku), out(kv,ku,ku)
     external dgemm,dgemv
@@ -499,6 +549,8 @@ contains
   end subroutine
 
   recursive subroutine dcdw (H_u, b_u, ku, out)  bind(C, name="dcdw_")
+    integer(c_int) ku
+    real(c_double) H_u, b_u, out
     intent(in) :: H_u, b_u, ku;   intent(out) :: out
     dimension H_u(ku,ku), b_u(ku), out(ku)
     out = - 2._c_double * matmul(transpose(H_u), b_u)
@@ -510,6 +562,8 @@ contains
     !!     Notice the negative, but no transpose at denominator.
     !!  2. If u is non-tip, then dldVev[k,l,i,j] == d(Lambda[k,l])/d(Vu[i,j]).
     !!    
+    integer(c_int) ku
+    real(c_double) dLdVev, b_u, out
     intent(in) :: dLdVev, b_u, ku;   intent(out) :: out
     dimension dLdVev(ku,ku,ku,ku), b_u(ku), out(ku,ku)
     do j=1,ku
@@ -538,7 +592,8 @@ contains
     !! dDvdVb_ij = dDudVb_ij - D[lndet(Lambda)]            Well, if Lambda has positive determinant at all
     !!        = dDudVb - Tr[(Vb^-1 + O) %*% dOudVb_..ij]
     !!        = dDudVb - sum((Vb^-1 + O)^T * dOudVb_..ij)
-    !! So 
+    integer(c_int) ku
+    real(c_double) solV, o, dldvev, out
     intent(in) :: solV, o, dldvev, ku;   intent(out) :: out
     dimension solV(ku,ku), o(ku,ku), dldvev(ku,ku,ku,ku), out(ku,ku)
     out = solV
@@ -552,7 +607,10 @@ contains
   
   !! Compute the derivative of likelihood of the direct children of the global root.
   recursive subroutine ddcr (kr, ku, x0, dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, &
-                        dcdwev, dcdvev, dddvev, dlikdv, dlikdw, dlikdphi)   bind(C, name="ddcr_")
+                     & dcdwev, dcdvev, dddvev, dlikdv, dlikdw, dlikdphi)   bind(C, name="ddcr_")
+    integer(c_int) kr, ku
+    real(c_double) x0, dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, &
+         & dcdwev, dcdvev, dddvev, dlikdv, dlikdw, dlikdphi
     intent(in) :: kr, ku, x0, dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, &
          & dcdwev, dcdvev, dddvev
     intent(out) :: dlikdv, dlikdw, dlikdphi
@@ -578,6 +636,8 @@ contains
   end subroutine
   
   recursive subroutine symdiff0d(x, k) bind(C, name="symdiff0d_")
+    real(c_double) x
+    integer(c_int) k
     intent(in) :: k;   intent(inout) x
     dimension x(k,k), tmp(k)
     tmp = (/(x(j,j), j=1, k)/)
@@ -588,12 +648,15 @@ contains
   end subroutine
 
   recursive subroutine fzkdown (Fb, zb, Kb, HPhib, ab, Lambb, x0, ksc, ksb, ksa, ksr, &
-       dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, &
-       dlikdv, dlikdw, dlikdphi, Fa, za, Ka)   bind(C, name="fzkdown_")
+       & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, &
+       & dlikdv, dlikdw, dlikdphi, Fa, za, Ka)   bind(C, name="fzkdown_")
     intent(in) :: Fb, zb, Kb, HPhib, ab, Lambb, x0, ksc, ksb, ksa, ksr, &
          dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev
     intent(out) :: dlikdv, dlikdw, dlikdphi, Fa, za, Ka
-    real(c_double) :: Kb, Ka    !! Exception to implicit rule
+    real(c_double) :: Fb, zb, Kb, HPhib, ab, Lambb, x0, &
+         & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, dcdwev, dcdvev, dddvev, &
+         & dlikdv, dlikdw, dlikdphi, Fa, za, Ka
+    integer(c_int) ksc, ksb, ksa, ksr
     dimension Fb(ksc, ksr), zb(ksc), Kb(ksc, ksc), HPhib(ksb, ksc), &
          & ab(ksb), Lambb(ksb, ksb), x0(ksr), &
          & dodvev(ksb, ksb, ksa, ksa), dodphiev(ksb, ksb, ksa, ksb), &
@@ -801,12 +864,16 @@ contains
   end subroutine
 
   recursive subroutine hlchainrule (x0, ho, hgam, hc, hd, kr, out) bind(c, name="hlchainrule_")
+    real(c_double) x0, ho, hgam, hc, hd, out
+    integer(c_int) kr
     intent(in) :: x0, ho, hgam, hc, hd, kr;   intent(out) :: out
     dimension ho(kr,kr), hgam(kr), x0(kr)
     out = dot_product(x0, hgam - matmul(ho, x0) / 2.0_c_double ) - (hc + hd) / 2.0_c_double
   end subroutine
 
   recursive subroutine hselfbktip(solV, x, w, Phi, kv, ku, solVPhi, solVxw) bind(C, name="hselfbktip_")
+    real(c_double) solV, x, w, Phi, solVPhi, solVxw
+    integer(c_int) kv, ku
     intent(in) :: solV, x, w, Phi, kv, ku;   intent(out) :: solVPhi, solVxw
     dimension solV(ku,ku), x(ku), w(ku), Phi(ku,kv), solVPhi(ku,kv), solVxw(ku)
     solVPhi = matmul(solV, Phi)
@@ -815,6 +882,9 @@ contains
 
   recursive subroutine hselfbkgen(solV, Lamb, sO, Phi, b, H, kv, ku, &
        & solVLsO, solVLsOPhi, VmVLV, solVLb, Hto) bind(C, name="hselfbkgen_")
+    integer(c_int) kv, ku
+    real(c_double) solV, Lamb, sO, Phi, b, H, &
+         & solVLsO, solVLsOPhi, VmVLV, solVLb, Hto
     intent(in)  :: solV, Lamb, sO, Phi, b, H, kv, ku
     intent(out) :: solVLsO, solVLsOPhi, VmVLV, solVLb, Hto
     dimension solV(ku,ku), Lamb(ku,ku), sO(ku,ku), Phi(ku,kv), b(ku), H(ku,ku), &
@@ -833,12 +903,16 @@ contains
   !
   recursive subroutine dbledifftopgen(ictx, i,j,m,n, kr,kv,ku, solVLsO,solVLsOPhi,VmVLV,solVLB,Hto,x0,d2L) &
        & bind(C, name="dbledifftopgen_")
+    integer(c_int) ictx, i, j, m, n, kr, kv, ku
+    real(c_double) solVLsO,solVLsOPhi,VmVLV,solVLB,Hto,x0,d2L
     dimension solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku), x0(kr), ho(kv,kv), hgam(kv)
     call ddsfgen(ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, VmVLV, solVLB, Hto,ho,hgam,hc,hd)
     call hlchainrule (x0, ho, hgam, hc, hd, kr, d2L)
   end subroutine
   recursive subroutine dbledifftoptip(ictx, i,j,m,n, kr,kv,ku, solV, solVPhi, solVxw, x0, d2L) &
        & bind(C, name="dbledifftoptip_")
+    integer(c_int) ictx, i,j,m,n, kr,kv,ku
+    real(c_double) solV, solVPhi, solVxw, x0, d2L
     dimension solV(ku,ku), solVPhi(ku,kv), solVxw(ku), x0(kr), ho(kv,kv), hgam(kv)
     call ddsftip(ictx, i,j,m,n, kv,ku, solV, solVPhi, solVxw, ho,hgam,hc,hd)
     call hlchainrule (x0, ho, hgam, hc, hd, kr, d2L)
@@ -846,6 +920,8 @@ contains
   
   recursive subroutine ddsfgen(ictx, i,j,m,n, kv,ku, &
        & solVLsO, solVLsOPhi, VmVLV, solVLB, Hto, ho, hgam, hc, hd) bind(C, name="ddsfgen_")
+    integer(c_int) ictx, i,j,m,n, kv,ku
+    real(c_double) solVLsO, solVLsOPhi, VmVLV, solVLB, Hto, ho, hgam, hc, hd
     intent(in)  :: ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, VmVLV, solVLb, Hto;  intent(out) :: ho, hgam, hc, hd
     dimension solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku), ho(kv,kv), hgam(kv)
     ho(:,:)= 0_c_double;  hgam(:)= 0_c_double;  hc= 0_c_double;  hd= 0_c_double
@@ -870,6 +946,8 @@ contains
     end select
   end subroutine
   recursive subroutine ddsftip(ictx, i,j,m,n, kv,ku, solV, solVPhi, solVxw, ho,hgam,hc,hd) bind(C, name="ddsftip_")
+    integer(c_int) ictx, i,j,m,n, kv,ku
+    real(c_double) solV, solVPhi, solVxw, ho,hgam,hc,hd
     intent(in)  :: ictx, i,j,m,n,kv,ku, solV, solVPhi, solVxw;  intent(out) :: ho,hgam,hc,hd
     dimension solV(ku,ku), solVPhi(ku,kv), solVxw(ku), ho(kv,kv), hgam(kv)
     ho(:,:)= 0_c_double;  hgam(:)= 0_c_double;  hc= 0_c_double;  hd= 0_c_double
@@ -895,6 +973,8 @@ contains
   end subroutine
   
   recursive subroutine symhessvv(i,j,m,n, dlijmn,dljimn,dljinm,dlijnm, dl) bind(C, name="symhessvv_")
+    real(c_double) dlijmn, dljimn, dljinm, dlijnm, dl
+    integer(c_int) i, j, m, n
     if (i /= j) then
        if (m /= n) then
           dl = dlijmn + dlijnm + dljimn + dljinm
@@ -919,6 +999,8 @@ contains
 ! 20  if ((i .eq. j) .and. (m .eq. n)) dl=dl+dlijmn
   end subroutine
   recursive subroutine symhessvany(i,j, dlijany,dljiany, dl) bind(C, name="symhessvany_")
+    real(c_double) dlijany, dljiany, dl
+    integer(c_int) i, j
     if (i /= j) then
        dl=dlijany+dljiany
     else
@@ -1411,9 +1493,11 @@ contains
 
 
   ! NOTICE This doesn't even use any of fmlfm_c, fm_c and q_c: Those are used largely to move m forward, not n.
-  recursive subroutine tndown (dfqk1_ch, HPhi, a, kr, knv, knu, kmv, kmu, dfqk1new_ch) bind(C, name="tndown_")
+  recursive subroutine tndown (dfqk1_ch, HPhi, a, knv, knu, kmv, kmu, dfqk1new_ch) bind(C, name="tndown_")
     type(dfdqdkCMEM)  :: dfqk1_ch,       dfqk1new_ch
     type(dfdqdk)      :: dfqk1,          dfqk1new
+    real(c_double) HPhi, a
+    integer(c_int) knv, knu, kmv, kmu
     dimension HPhi(knu,knv), a(knu)
     call read_dfqk(dfqk1_ch, dfqk1)
     call read_dfqk(dfqk1new_ch, dfqk1new)
@@ -1484,8 +1568,9 @@ contains
        & bind(C, name = "tndown1st_")
     type(dfdqdkCMEM)  :: dfqk1_ch,       dfqk1new_ch
     type(dfdqdk)      :: dfqk1,          dfqk1new
-    real(c_double)    :: K(kv,kv) ! Exception to implicit rule
-    dimension H(ku,ku), HPhi(ku,kv), f1m(kv,kr), Lamb(ku,ku), solV(ku,ku), solVLsOPhi(ku,kv), LsolV(ku,ku), &
+    real(c_double) K,H,HPhi,w,a,f1m,q1m,Lamb,solV,solVLsOPhi
+    integer(c_int) kr,kv,ku
+    dimension H(ku,ku), K(kv,kv), HPhi(ku,kv), f1m(kv,kr), Lamb(ku,ku), solV(ku,ku), solVLsOPhi(ku,kv), LsolV(ku,ku), &
          & q1m(kv),dfmmp1(ku,kv),w(ku),a(ku), solVaw(ku), extrakterm(ku,ku)
     ! In dfqk1, f1n and q1n is intentionally undefined.
     call read_dfqk(dfqk1new_ch, dfqk1new)
@@ -2455,6 +2540,8 @@ contains
   end subroutine
 
   recursive subroutine bilinupdt(d, bilinmat, npar, idx1, idx2, dir, ndir) bind(C, name="bilinupdt_")
+    integer(c_int) ndir
+    real(c_double) d, bilinmat, dir
     integer(c_long) :: npar, idx1, idx2
     dimension bilinmat(ndir,ndir), dir(npar,ndir)
     do j = 1,ndir
@@ -2470,6 +2557,8 @@ contains
   end subroutine
 
   recursive subroutine hesscpyskip(Hnew, nnew, Hold, nold, m, istart, ihowmuch) bind(C, name="hesscpyskip_")
+    integer(c_int) nnew, nold, m, istart, ihowmuch
+    real(c_double) Hnew, Hold
     dimension Hnew(m, nnew, nnew), Hold(m,nold,nold)
     iin = 1_c_int
     do iio=1,nold
@@ -2489,6 +2578,8 @@ contains
   end subroutine
 
   recursive subroutine hesschopnondiag(Hnew, nnew, Hold, nold, m, istart, k) bind(C, name="hesschopnondiag_")
+    real(c_double) Hnew, Hold
+    integer(c_int) nnew, nold, m, istart, k
     dimension Hnew(m, nnew, nnew), Hold(m,nold,nold)
     ijdiag = 0_c_int
     ijo = 1_c_int
@@ -2525,6 +2616,8 @@ contains
 
 
   subroutine hessdiag2ltri (Hnew, nnew, Hold, nold, m, k, istart) bind(C, name='hessdiag2ltri_')
+    integer(c_int) nnew, nold, m, k, istart
+    real(c_double) Hnew, Hold
     dimension Hnew(m,nnew,nnew),  Hold(m,nold,nold)
     ijdiag = 0_c_int
     ijo = 1_c_int

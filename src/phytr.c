@@ -233,7 +233,7 @@ extern void updategbk_(int *kv, int *ku, struct llst **fmlfm_c, struct llst **fm
 extern void tndown1st_(struct dfdqdk *dfqk1_ch, double *K, double *H, double *HPhi,double *w, double *a, double *f1m,
 		       double *q1m, double *Lamb, double *solV, double *solVLsOPhi, int *kr, int *kv, int *ku,
 		       struct dfdqdk *dfqk1new_ch);
-extern void tndown_(struct dfdqdk *dfqk1_ch, double *HPhi, double *a, int *kr, int *knv, int *knu, int *kmv, int *kmu, struct dfdqdk *dfqk1new_ch);
+extern void tndown_(struct dfdqdk *dfqk1_ch, double *HPhi, double *a, int *knv, int *knu, int *kmv, int *kmu, struct dfdqdk *dfqk1new_ch);
 extern void tntm_(int *kr, int *kmv, int *kmu, int *knv, int *knu, struct dfdqdk *dfqk1_ch,
 		  double *dodvev, double *dodphiev, double *dgamdvev, double *dgamdwev, double *dgamdphiev, double *x0,
 		  double *hessflat, long *nparam, long *admphi, long *admV, long *admw, long *adnphi, long *adnV, long *adnw);
@@ -1004,7 +1004,7 @@ DOWNDESC:
 					if (! (curdesc.dfqk1new_ch = calloc(DFQKSIZ,1))) goto MEMFAIL;
 					if (! allocdfqk(t->ndat.ku, curdesc.n->ndat.ku, curdesc.kv,
 							p->ndat.ku, t->ndat.ku, curdesc.dfqk1new_ch)) goto MEMFAIL;
-					tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a, &(t->ndat.ku), &(curdesc.kv),
+					tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a, &(curdesc.kv),
 						&(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1new_ch);
 					for (curdesc.p = curdesc.n->chd; curdesc.p; curdesc.p = curdesc.p->nxtsb) {
 						if (j >= 50*1024*1024)             goto STACKFAIL;
@@ -1254,14 +1254,14 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 			pushback[pushbackptr].knv     = KNV;
 			pushback[pushbackptr].lblk    = lblk;
 			++pushbackptr;
-			hessptr += lblk;					
+			hessptr += lblk;
 			if (stalpha[q].n->chd) {
 				stalpha[q].dfqk1new_ch = (void*)((char*)wsp_a+swsp_a); swsp_a+=DFQKSIZ;
 				allocdfqk(pv_rt->ndat.ku, stalpha[q].n->ndat.ku, stalpha[q].kv,
-					  pv_ancestry[pv_i]->ndat.ku, pv_kv, stalpha[q].dfqk1new_ch);
+				          pv_ancestry[pv_i]->ndat.ku, pv_kv, stalpha[q].dfqk1new_ch);
 				tndown_(stalpha[q].dfqk1_ch, stalpha[q].n->ndat.HPhi, stalpha[q].n->ndat.a,
-					&(pv_rt->ndat.ku), &(stalpha[q].kv), &(stalpha[q].n->ndat.ku),
-					&pv_kv, &(pv_ancestry[pv_i]->ndat.ku), stalpha[q].dfqk1new_ch);
+				        &(stalpha[q].kv), &(stalpha[q].n->ndat.ku), &pv_kv, &(pv_ancestry[pv_i]->ndat.ku),
+				        stalpha[q].dfqk1new_ch);
 				/* 
 				   PGI 2019 Compiler bug
 				   ---------------------
@@ -1494,8 +1494,8 @@ DOWNDESC:
 					       curglob.m->ndat.ku, curglob.kv, curdesc.dfqk1new_ch))
 					goto MEMFAIL;
 				tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a,
-					&(rt->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku),
-					&(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1new_ch);
+				        &(curdesc.kv), &(curdesc.n->ndat.ku),
+				        &(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1new_ch);
 				for (curdesc.p = curdesc.n->chd; curdesc.p; curdesc.p = curdesc.p->nxtsb) {
 					stdesc[j++] = curdesc;
 					curdesc.kv=curdesc.n->ndat.ku;  curdesc.dfqk1_ch=curdesc.dfqk1new_ch;
@@ -3236,7 +3236,7 @@ static R_NativePrimitiveArgType lnunchol_type[] = {
 	REALSXP, INTSXP, REALSXP, INTSXP, REALSXP, INTSXP};
 extern void *(hphiha_)();
 static R_NativePrimitiveArgType hphiha_type[] = {
-	REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP,INTSXP};
+	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP,INTSXP};
 extern void *(hvha_)();
 static R_NativePrimitiveArgType hvha_type[] = {
 	REALSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
@@ -3260,7 +3260,7 @@ static const R_CMethodDef cMethods[] = {
 	{"d0geouvwphi_",          &d0geouvwphi_,          17, d0geouvwphi_type           },
 	{"ougejac_",              &ougejac_,              13, ougejac_type               },
 	{"lnunchol_",             (DL_FUNC)&lnunchol_,     6, lnunchol_type              },
-	{"hphiha_",               &hphiha_,               10, hphiha_type                },
+	{"hphiha_",               &hphiha_,                9, hphiha_type                },
 	{"hvha_",                 &hvha_,                 14, hvha_type                  },
 	{"hvdadl_",               &hvdadl_,               13, hvdadl_type                },
 	{"hvhl_",                 &hvhl_,                 11, hvhl_type                  },
