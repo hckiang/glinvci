@@ -11,8 +11,13 @@
 #' @docType package
 #' @name glinvci
 #' @useDynLib glinvci, .registration=TRUE
+#' @importFrom utils globalVariables
 NULL
 
+## This needs to be put in NAMESPACE via @importFrom, otherwise if we use utils:: then we'll
+## get a NOTE in CMD check complaining that the package utils is imported in DESCRIPTION but
+## is not used.
+globalVariables('INFO__')
 
 ndesc = function (x, ...) UseMethod('ndesc')
 ndesc.glinv_gauss = function (self) .Call(Rndesc, self$ctree)
@@ -570,7 +575,7 @@ print.glinv = function (x, ...) {
   cat(sprintf(paste0(
     'A GLInv model with %d regimes and %d parameters in total, %s.\n',
     'The phylogeny has %d tips and %d internal nodes.\n'),
-    length(unique(na.exclude(mod$regtags))), mod$nparams,
+    length(unique(stats::na.exclude(mod$regtags))), mod$nparams,
     {
       if (length(mod$parsegments) > 2) {
         i = 1 # currently processing parfn ID.
