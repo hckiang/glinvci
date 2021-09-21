@@ -11,6 +11,9 @@ grad(mod, ...)
 
 \item{...}{Further arguments to be passed to the S3 methods.}
 }
+\value{
+A numerical vector containing the gradient of \code{mod}.
+}
 \description{
 For the \code{\link{glinv}} class, which is a high-level user interface, please see \code{\link{grad.glinv}}; and
 for \code{\link{glinv_gauss}}, which is a lower-level facility, please see \code{\link{grad.glinv_gauss}}.

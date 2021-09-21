@@ -18,6 +18,9 @@ set_tips(mod, X)
 \item{X}{A matrix of trait values, in which \code{X[p,n]} stores the p-th dimension
 of the multivariate trait of the n-th tip of the phylogeny.}
 }
+\value{
+No return value, called for side effects.
+}
 \description{
 If a \code{glinv_gauss} or \code{glinv} object were initalised with \code{X=NULL}, methods like
 \code{lik} will not work because it lacks actual data. In this case, the user
@@ -30,7 +33,7 @@ semantic (See example).
 }
 \examples{
 tr = ape::rtree(10)
-model = glinv_gauss(tr, x0=c(0,0))  # The \code{X} argument is implicitly NULL
+model = glinv_gauss(tr, x0=c(0,0))  # The `X` argument is implicitly NULL
 traits = matrix(rnorm(20), 2, 10)
 set_tips(model, traits)
 # Now lik(model, ...) should work

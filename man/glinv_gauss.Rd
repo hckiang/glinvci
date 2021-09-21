@@ -12,9 +12,9 @@ glinv_gauss(tree, x0, dimtab = NULL, X = NULL)
 
 \method{lik}{glinv_gauss}(mod, par = NULL, ...)
 
-\method{grad}{glinv_gauss}(mod, par = NULL, lik = F, ...)
+\method{grad}{glinv_gauss}(mod, par = NULL, lik = FALSE, ...)
 
-\method{hess}{glinv_gauss}(mod, par = NULL, lik = F, grad = F, directions = NULL, ...)
+\method{hess}{glinv_gauss}(mod, par = NULL, lik = FALSE, grad = FALSE, directions = NULL, ...)
 
 \method{print}{glinv_gauss}(x, ...)
 }
@@ -108,7 +108,7 @@ par = unlist(
    list('Phi' = c(3,0,0,3), # For node #3, a tip
         'w'   = c(-3,3),
         'V'   = c(3,0,3)),
-   list('Phi' = c(4,0,0,4), # For node #5. Node #4 skipped as it is a root
+   list('Phi' = c(4,0,0,4), # For node #5. Node #4 skipped as it is the root
         'w'   = c(-4,4),
         'V'   = c(4,0,4))
    ))
@@ -116,4 +116,7 @@ print(par)
 lik(model, par)
 grad(model, par)
 hess(model, par)
+}
+\references{
+Mitov V, Bartoszek K, Asimomitis G, Stadler T (2019). “Fast likelihood calculation for multivariate Gaussian phylogenetic models with shifts.” Theor. Popul. Biol.. https://doi.org/10.1016/j.tpb.2019.11.005.
 }

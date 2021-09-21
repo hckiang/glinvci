@@ -12,7 +12,7 @@ varest(mod, ...)
   fitted,
   method = "analytical",
   numDerivArgs = list(method = "Richardson", method.args = list(d = 0.5, r = 3)),
-  store_gaussian_hessian = F,
+  store_gaussian_hessian = FALSE,
   control.mc = list(),
   ...
 )

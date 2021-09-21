@@ -11,6 +11,9 @@ lik(mod, ...)
 
 \item{...}{Further arguments to be passed to the S3 methods.}
 }
+\value{
+A numerical scalar containing the likelihood of \code{mod}.
+}
 \description{
 This is a S3 generic method. For the \code{\link{glinv}} class, which is a high-level user interface, please 
 see \code{\link{lik.glinv}}; and for \code{\link{glinv_gauss}}, which is a lower-level facility, please see

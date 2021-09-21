@@ -31,6 +31,7 @@ nparams.glinv_gauss = function (self) .Call(Rnparams, self$ctree)
 #' and the user had never called \code{set_tips} on it.
 #'
 #' @param mod A \code{glinv_gauss} object.
+#' @return A Boolean. True if \code{mod} contains tip trait values and false otherwise.
 #' @export
 has_tipvals = function (mod) UseMethod('has_tipvals')
 
@@ -53,9 +54,10 @@ has_tipvals.glinv_gauss = function (mod) .Call(Rxavail, mod$ctree)
 #' @param mod A \code{glinv_gauss} or \code{glinv} object.
 #' @param X   A matrix of trait values, in which \code{X[p,n]} stores the p-th dimension
 #'            of the multivariate trait of the n-th tip of the phylogeny. 
+#' @return    No return value, called for side effects.
 #' @examples
 #' tr = ape::rtree(10)
-#' model = glinv_gauss(tr, x0=c(0,0))  # The \code{X} argument is implicitly NULL
+#' model = glinv_gauss(tr, x0=c(0,0))  # The `X` argument is implicitly NULL
 #' traits = matrix(rnorm(20), 2, 10)
 #' set_tips(model, traits)
 #' # Now lik(model, ...) should work
@@ -85,8 +87,8 @@ set_tips.glinv       = function (mod, X)    set_tips(mod$rawmod, tip_purge(X))
 #' @param mod    Either a \code{glinv_gauss} or \code{glinv} object.
 #' @param par    Parameters underlying the simulation, in the same format as \code{lik.glinv_gauss} or \code{lik.glinv}.
 #' @param Nsamp  Number of sample point to simulate.
-#' @return A list containing Nsamp elements, each of which is a length-n list, where \eqn{n} is the number of tips
-#'         containing the simulated trait values. 
+#' @return       A list containing Nsamp elements, each of which is a length-n list, where \eqn{n} is the number of tips
+#'               containing the simulated trait values. 
 #' @export
 rglinv = function (mod, par, Nsamp) UseMethod('rglinv')
 
@@ -147,6 +149,7 @@ clone_topology = function (ctree) .Call(R_clone_tree, ctree)
 #'                 \item{dimtab}{Identical to the \code{dimtab} argument.}
 #'                 \item{gaussdim}{The number of dimension of the parameter space of this model.}
 #'               }
+#' @references      Mitov V, Bartoszek K, Asimomitis G, Stadler T (2019). “Fast likelihood calculation for multivariate Gaussian phylogenetic models with shifts.” Theor. Popul. Biol.. https://doi.org/10.1016/j.tpb.2019.11.005.
 #' @export
 glinv_gauss = function (tree, x0, dimtab=NULL, X=NULL) {
   if (!'phylo' %in% class(tree))                stop('The tree must be an ape tree')
@@ -200,6 +203,7 @@ clean_x = function (X, dimtab, tree) {
 #'
 #' @param    mod    An object of either \code{\link{glinv}} or \code{\link{glinv_gauss}} class.
 #' @param    ...    Further arguments to be passed to the S3 methods.
+#' @return          A numerical scalar containing the likelihood of \code{mod}.
 #' @export
 lik = function (mod, ...) UseMethod('lik')
 
@@ -233,7 +237,7 @@ lik = function (mod, ...) UseMethod('lik')
 #'    list('Phi' = c(3,0,0,3), # For node #3, a tip
 #'         'w'   = c(-3,3),
 #'         'V'   = c(3,0,3)),
-#'    list('Phi' = c(4,0,0,4), # For node #5. Node #4 skipped as it is a root
+#'    list('Phi' = c(4,0,0,4), # For node #5. Node #4 skipped as it is the root
 #'         'w'   = c(-4,4),
 #'         'V'   = c(4,0,4))
 #'    ))
@@ -256,6 +260,7 @@ lik.glinv_gauss = function (mod, par=NULL, ...) {
 #'
 #' @param    mod    An object of either \code{\link{glinv}} or \code{\link{glinv_gauss}} class.
 #' @param    ...    Further arguments to be passed to the S3 methods.
+#' @return    A numerical vector containing the gradient of \code{mod}.
 #' @export
 grad = function (mod, ...) UseMethod('grad')
 
@@ -269,14 +274,14 @@ grad = function (mod, ...) UseMethod('grad')
 #' @param lik    If \code{TRUE}, \code{grad.glinv_gauss} and \code{hess.glinv_gauss} returns also the log-likelihood.
 #' @param ...    Not used.
 #' @export
-grad.glinv_gauss = function (mod, par=NULL, lik=F, ...) {
+grad.glinv_gauss = function (mod, par=NULL, lik=FALSE, ...) {
   if (is.null(par))
     function (par) grad_glinv_gauss_(mod=mod, par=par, lik=lik)
   else
     grad_glinv_gauss_(mod=mod, par=par, lik=lik)
 }
 
-grad_glinv_gauss_ = function (mod, par, lik=F, ...) {
+grad_glinv_gauss_ = function (mod, par, lik=FALSE, ...) {
   l = .Call(Rdphylik, mod$ctree, par, mod$x0, mod$gaussdim)
   g = c(.Call(Rextractderivvec, mod$ctree))
   if (!lik) g
@@ -290,6 +295,7 @@ grad_glinv_gauss_ = function (mod, par, lik=F, ...) {
 #' 
 #' @param    mod    An object of either \code{\link{glinv}} or \code{\link{glinv_gauss}} class.
 #' @param    ...    Further arguments to be passed to the S3 methods.
+#' @return   A numerical square matrix containing the Hessian of \code{mod}.
 #' @export
 hess = function (mod, ...) UseMethod('hess')
 
@@ -306,14 +312,14 @@ hess = function (mod, ...) UseMethod('hess')
 #'                    \eqn{H} is the huge Hessian matrix, without storing \eqn{H} itself in memory.
 #' @param ...         Not used.
 #' @export
-hess.glinv_gauss = function (mod, par=NULL, lik=F, grad=F, directions=NULL, ...) {
+hess.glinv_gauss = function (mod, par=NULL, lik=FALSE, grad=FALSE, directions=NULL, ...) {
   mod
   if (is.null(par)) {
     function (par) hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
   } else           hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
 }
 
-hess_glinv_gauss_ = function (mod, par, lik=F, grad=F, directions=NULL, ...) {
+hess_glinv_gauss_ = function (mod, par, lik=FALSE, grad=FALSE, directions=NULL, ...) {
   if (is.null(directions)) {
     l = .Call(Rhphylik, mod$ctree, par, mod$x0, mod$gaussdim)
     h = .Call(Rextracthessall, mod$ctree)
@@ -442,8 +448,9 @@ tip_purge.matrix = function (X)
 #'                                        is \code{nparams} in this object. When called, this function traverses
 #'                                        the tree, calls the functions in \code{parjacs} on each node, and row-concatenates the
 #'                                        result in an order consistent with what \code{\link{lik.glinv_gauss}} accepts.}
+#' @references      Mitov V, Bartoszek K, Asimomitis G, Stadler T (2019). “Fast likelihood calculation for multivariate Gaussian phylogenetic models with shifts.” Theor. Popul. Biol.. https://doi.org/10.1016/j.tpb.2019.11.005.
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' ### --- STEP 1: Making an example tree and trait data
 #' ntips = 200
 #' k     = 2                 # No. of trait dimensions
@@ -464,7 +471,7 @@ tip_purge.matrix = function (X)
 #' theta = c(0,0)
 #' sig   = matrix(c(0.5,0,0,0.5), k)
 #' sig_x = t(chol(sig))
-#' par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=T)])
+#' par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=TRUE)])
 #' print(par_init)
 #' print(lik(mod)(par_init))
 #' print(grad(mod)(par_init))
@@ -674,7 +681,7 @@ grad.glinv = function (mod, numDerivArgs = list(method='Richardson', method.args
 #' @export
 hess.glinv = function (mod,
                        numDerivArgs = list(method='Richardson', method.args=list(d=.5,r=3)),
-                       store_gaussian_hessian = F, ...) {
+                       store_gaussian_hessian = FALSE, ...) {
   mod
   function (par) {
     if (length(par) != mod$nparams)
@@ -854,7 +861,7 @@ fit = function (mod, ...) UseMethod('fit')
 #'                     \item{convergence}{Zero if the optimisation routine has converged successfully.}
 #'                     \item{message}{A message from the optimisation routine.}
 #' @export
-fit.glinv = function (mod, parinit=NULL, method='CG', lower=-Inf, upper=Inf, use_optim=F, control=list(), ...) {
+fit.glinv = function (mod, parinit=NULL, method='CG', lower=-Inf, upper=Inf, use_optim=FALSE, control=list(), ...) {
   if (is.null(parinit))
     parinit = if (is.finite(lower) && is.finite(upper))
                 stats::runif(mod$nparams, lower, upper)
@@ -967,7 +974,7 @@ varest.glinv = function (mod,
                          fitted,
                          method                 = 'analytical',
                          numDerivArgs           = list(method='Richardson', method.args=list(d=.5,r=3)),
-                         store_gaussian_hessian = F,
+                         store_gaussian_hessian = FALSE,
                          control.mc             = list(),
                          ...) {
   if (is.list(fitted)) {

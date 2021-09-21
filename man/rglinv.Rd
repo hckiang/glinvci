@@ -21,7 +21,7 @@ rglinv(mod, par, Nsamp)
 }
 \value{
 A list containing Nsamp elements, each of which is a length-n list, where \eqn{n} is the number of tips
-        containing the simulated trait values.
+              containing the simulated trait values.
 }
 \description{
 Simulate random trait values from the Gaussian branching process specified by \code{mod}.
