@@ -2,13 +2,17 @@
 % Please edit documentation in R/ou.R
 \name{nparams_ou}
 \alias{nparams_ou}
-\title{Get the number of parameters of some pre-defined models}
+\title{Get the number of parameters of the unrestricted OU model}
 \usage{
 nparams_ou(k)
 }
 \arguments{
 \item{k}{An Integer. The total number of dimensions of the multivariate traits.}
 }
+\value{
+A numerical scalar, which is the number of parameters of the the unrestricted OU model.
+}
 \description{
-\code{nparams_ou} returns the number of parameters of their respective model.
+\code{nparams_ou} returns the number of parameters of the unrestricted OU model. For the restricted
+models, including Brownian motion, see \code{\link{parameter_restriction}} for details.
 }

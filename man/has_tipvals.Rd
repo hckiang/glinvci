@@ -12,6 +12,9 @@ has_tipvals(mod)
 \arguments{
 \item{mod}{A \code{glinv_gauss} object.}
 }
+\value{
+A Boolean. True if \code{mod} contains tip trait values and false otherwise.
+}
 \description{
 Returns true if and only if the \code{glinv_gauss} model were initialised with \code{X=NULL}
 and the user had never called \code{set_tips} on it.

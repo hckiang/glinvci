@@ -133,7 +133,7 @@ oujac = function (par, t, ...) {
 #' 
 #' \code{ouhess} accepts the same arguments as \code{oupar}
 #' and returns all the second derivatives \code{oupar}. The returned
-#' values are consistent with the format required by \code{link{glinv}}.
+#' values are consistent with the format required by \code{\link{glinv}}.
 #' 
 #' @rdname oupar
 #' @export
@@ -206,10 +206,12 @@ ouhess = function (par, t, ...) {
   r
 }
 
-#' Get the number of parameters of some pre-defined models
+#' Get the number of parameters of the unrestricted OU model
 #' 
-#' \code{nparams_ou} returns the number of parameters of their respective model.
+#' \code{nparams_ou} returns the number of parameters of the unrestricted OU model. For the restricted
+#' models, including Brownian motion, see \code{\link{parameter_restriction}} for details.
 #' 
 #' @param k    An Integer. The total number of dimensions of the multivariate traits.
+#' @return     A numerical scalar, which is the number of parameters of the the unrestricted OU model.
 #' @export
 nparams_ou = function (k) k*k+k+(k*(k+1L))%/%2L

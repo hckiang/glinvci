@@ -312,7 +312,7 @@ for precise meaning of the \eqn{(H,\theta,\Sigma_x')} mentioned below.
   \code{*_diagH_*}      \tab \eqn{(h,\theta,\Sigma_x')}, with \eqn{h=diag(H)}, and H is a diagonal matrix\cr
   \code{*_logdiagH_*}   \tab \eqn{(log(h),\theta,\Sigma_x')}, with \eqn{h=diag(H)}, and H is a diagonal matrix\cr
   \code{*_symH_*}       \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being lower-triangular part of the symmetric matrix \eqn{H}\cr
-  \code{*_spdH_*}       \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being Cholesky factor of symmetric positively definite \eqn{H}\cr
+  \code{*_spdH_*}       \tab \eqn{(L,\theta,\Sigma_x')}, with \eqn{L} being Cholesky factor of the S.P.D. matrix \eqn{H}\cr
   \code{*_logspdH_*}    \tab \eqn{(L',\theta,\Sigma_x')} where \eqn{L'} equals \eqn{L}, except that on the diagonals \eqn{L'_i} = \eqn{log L_i}\cr
   \code{*_fixedH_*}     \tab \eqn{(\theta,\Sigma_x')}. \eqn{H} is constant, hence missing\cr
   \code{*_fixedtheta_*} \tab \eqn{(H,\Sigma_x')}. \eqn{\theta} is constant, hence missing\cr

@@ -11,6 +11,9 @@ hess(mod, ...)
 
 \item{...}{Further arguments to be passed to the S3 methods.}
 }
+\value{
+A numerical square matrix containing the Hessian of \code{mod}.
+}
 \description{
 For the \code{\link{glinv}} class, which is a high-level user interface, please see \code{\link{hess.glinv}}; and
 for \code{\link{glinv_gauss}}, which is a lower-level facility, please see \code{\link{hess.glinv_gauss}}.

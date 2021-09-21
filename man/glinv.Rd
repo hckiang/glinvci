@@ -32,7 +32,7 @@ glinv(
 \method{hess}{glinv}(
   mod,
   numDerivArgs = list(method = "Richardson", method.args = list(d = 0.5, r = 3)),
-  store_gaussian_hessian = F,
+  store_gaussian_hessian = FALSE,
   ...
 )
 }
@@ -156,7 +156,7 @@ Passing a single function to \code{parfns} is equivalent to passing a singleton 
 \code{parhess}, and \code{pardims}.
 }
 \examples{
-\dontrun{
+\donttest{
 ### --- STEP 1: Making an example tree and trait data
 ntips = 200
 k     = 2                 # No. of trait dimensions
@@ -177,7 +177,7 @@ H     = matrix(c(1,0,0,-1), k)
 theta = c(0,0)
 sig   = matrix(c(0.5,0,0,0.5), k)
 sig_x = t(chol(sig))
-par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=T)])
+par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=TRUE)])
 print(par_init)
 print(lik(mod)(par_init))
 print(grad(mod)(par_init))
@@ -193,4 +193,7 @@ v_estimate = varest(mod, fitted)
 ### --- STEP 6: Get marginal confidence intervals
 print(marginal_ci(v_estimate, lvl=0.95)) 
 }
+}
+\references{
+Mitov V, Bartoszek K, Asimomitis G, Stadler T (2019). “Fast likelihood calculation for multivariate Gaussian phylogenetic models with shifts.” Theor. Popul. Biol.. https://doi.org/10.1016/j.tpb.2019.11.005.
 }

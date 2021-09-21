@@ -13,7 +13,7 @@ fit(mod, ...)
   method = "CG",
   lower = -Inf,
   upper = Inf,
-  use_optim = F,
+  use_optim = FALSE,
   control = list(),
   ...
 )

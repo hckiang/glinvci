@@ -44,7 +44,7 @@ Jacobian matrix of \code{oupar}.
 
 \code{ouhess} accepts the same arguments as \code{oupar}
 and returns all the second derivatives \code{oupar}. The returned
-values are consistent with the format required by \code{link{glinv}}.
+values are consistent with the format required by \code{\link{glinv}}.
 }
 \details{
 By multivariate Ornstein-Uhlenbeck process, we mean
