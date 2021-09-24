@@ -602,7 +602,7 @@ contains
     real(c_double) t, out, wsp
     complex(c_double_complex) P, invP, Lambda, zwsp
     integer(c_int) k, lwsp, lzwsp
-    dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp) !ipiv(k)
+    dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp)
     target wsp
     real(c_double), pointer :: tmp(:,:)
     tmp(1:k,1:k) => wsp(1:(k**2))

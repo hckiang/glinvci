@@ -149,6 +149,17 @@ contains
        enddo
     enddo
   end subroutine
+  recursive subroutine syflgefill (src, k)
+    dimension src(k,k)
+    do j = 1,k
+      i = 1
+200   if (i >= j) goto 99
+      src(i,j) = src(j,i)
+      i = i + 1
+      goto 200
+99    continue
+    end do
+  end subroutine
   recursive subroutine sylgecpy (dst, src, k)            bind(C, name="sylgecpy_")
     real(c_double) dst, src
     integer(c_int) k
@@ -182,15 +193,17 @@ contains
     implicit none
     real(c_double) :: Phi, w, V, daddy, wsp, L !vterm, 
     integer(c_int) :: kv, ku, info
-    dimension Phi(ku,kv), w(ku), V((ku*(ku+1))/2), daddy(kv), wsp(ku), L((ku*(ku+1))/2)!, vterm(ku)
+    dimension Phi(ku,kv), w(ku), V((ku*(ku+1))/2), daddy(kv), wsp(ku), L((ku*(ku+1))/2)
     ! On entry, wsp contains standard normal random numbers. On exit, wsp contains the ouput
-    external dpptrf, dspmv
+    external dpptrf, dspmv, dgemm
     L(:)     = V(:)
     call dpptrf('L',ku,L,info)
     if (info /= 0) return
     !call dspmv('L',ku,1.0_c_double,L,vterm,1_c_int,1.0_c_double,wsp,1_c_int)
     call dtpmv('L','N','N',ku,L,wsp,1_c_int)
-    wsp = wsp + matmul(Phi, daddy) + w
+    wsp = wsp + w
+    call dgemv('N',ku,kv,1.0_c_double,Phi,ku,daddy,1_c_int,1.0_c_double,wsp,1_c_int)
+    !wsp = wsp + matmul(Phi, daddy) + w
   end subroutine
 
   pure recursive integer(c_long) function ijtouplolidx (k, i,j) bind(c, name="ijtouplolidx_")
@@ -213,22 +226,39 @@ contains
     intent(in)    :: kv, ku, Vro, w, Phi, c, d, gam, o
     intent(out)   :: H, b, V, solV
     intent(inout) :: cout, dout, gamout, oout
+    real(c_double) tmpscl
     dimension Vro(ku, ku), w(ku), Phi(ku, kv), gam(ku), o(ku, ku), H(ku, ku), b(ku), V(ku, ku), &
          & solV(ku, ku), gamout(kv), oout(kv, kv)
+    real(c_double), allocatable :: tmpkuku(:,:), tmpkvku(:,:)
     external dpotrf, dpotri
+    allocate(tmpkuku(ku,ku), tmpkvku(kv,ku))
     ! V will contain Lambda eventually after the first inverse. So it was a misnomer.
     V = Vro
-    b = gam - matmul(o, w)
+    b = gam
+    call dgemv('N',ku,ku,-1.0_c_double,o,ku,w,1_c_int,1.0_c_double,b,1_c_int)
+    !b = gam - matmul(o, w)
     call dpotrf( 'U', ku, V, ku, info )
     if (info /= 0) goto 80
-    dout = dout + d + sum((/(log(V(j,j)), j=1, ku)/)*2.0_c_double)
+    tmpscl = 0.0_c_double
+    do jj = 1,ku
+      tmpscl = tmpscl + log(V(jj,jj))
+    end do
+    tmpscl = tmpscl * 2.0_c_double
+    dout = dout + d + tmpscl
+    !dout = dout + d + sum((/(log(V(j,j)), j=1, ku)/)*2.0_c_double)
     call dpotri( 'U', ku, V, ku, info )
     if (info /= 0) goto 80
     solV = V                    ! Now V contains V^(-1)
     V = V + o
     call dpotrf('U', ku, V, ku, info)
     if (info /= 0) goto 85
-    dout = dout + sum((/(log(V(j,j)), j=1, ku)/)*2.0_c_double) ! Now Delta is done    
+        tmpscl = 0.0_c_double
+    do jj = 1,ku
+      tmpscl = tmpscl + log(V(jj,jj))
+    end do
+    tmpscl = tmpscl * 2.0_c_double
+    dout = dout + tmpscl        ! Now Delta is done
+    !dout = dout + sum((/(log(V(j,j)), j=1, ku)/)*2.0_c_double) ! Now Delta is done    
     call dpotri( 'U', ku, V, ku, info ) ! Now V contains Lambda
     if (info /= 0) goto 85
     do j = 1, ku
@@ -241,16 +271,31 @@ contains
           V(i,j) = V(j,i)
        enddo
     enddo
-    H = -matmul(V, o)
+    call dgemm('N','N',ku,ku,ku,-1.0_c_double,V,ku,o,ku,0.0_c_double,H,ku)
+    !H = -matmul(V, o)
     do j = 1, ku
        H(j,j) = H(j,j) + 1.0_c_double ! Now H is computed
     enddo
-    cout = cout + c + dot_product(w, matmul(o, w) - 2.0_c_double * gam) &
-         - dot_product(b, matmul(V, b))
-    gamout = gamout + matmul(transpose(Phi), matmul(transpose(H), b))
-    oout = oout + matmul(matmul(transpose(Phi), matmul(o, H)), Phi)
-    
-79  return
+    cout = cout + c
+    tmpkuku(:,1) = gam
+    call dgemv('N',ku,ku,1.0_c_double,o,ku,w,1_c_int,-2.0_c_double,tmpkuku(:,1),1_c_int)
+    cout = cout + ddot(ku, w, 1_c_int, tmpkuku(:,1), 1_c_int)
+    call dgemv('N',ku,ku,1.0_c_double,V,ku,b,1_c_int,0.0_c_double,tmpkuku(:,1),1_c_int)
+    cout = cout - ddot(ku, b, 1_c_int, tmpkuku(:,1), 1_c_int)
+
+    call dgemv('T',ku,ku,1.0_c_double,H,ku,b,1_c_int,0.0_c_double,tmpkuku(:,1),1_c_int)
+    call dgemv('T',ku,kv,1.0_c_double,Phi,ku,tmpkuku(:,1),1_c_int,1.0_c_double,gamout,1_c_int)
+
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,o,ku,H,ku,0.0_c_double,tmpkuku,ku)
+    call dgemm('T','N',kv,ku,ku,1.0_c_double,Phi,ku,tmpkuku,ku,0.0_c_double,tmpkvku,kv)
+    call dgemm('N','N',kv,kv,ku,1.0_c_double,tmpkvku,kv,Phi,ku,1.0_c_double,oout,kv)
+    !cout = cout + c + dot_product(w, matmul(o, w) - 2.0_c_double * gam) &
+    !     - dot_product(b, matmul(V, b))
+    !gamout = gamout + matmul(transpose(Phi), matmul(transpose(H), b))
+    !oout = oout + matmul(matmul(transpose(Phi), matmul(o, H)), Phi)
+
+79  deallocate(tmpkuku, tmpkvku)
+    return
 80  info = -1
     goto 79
 85  info = -2
@@ -258,17 +303,21 @@ contains
 ! 80  call rexit('mergintern(): V is numerically non-positive-definite!')
 ! 85  call rexit('mergintern(): V^-1 + sum_k(Omega_k) is numerically non-positive-definite!')
   end subroutine
+
   recursive subroutine ndmerg(&
        V, w, Phi, kv, ku, c, gam, o, d, &
        cout, gamout, oout, dout, info)                  bind(C, name="ndmerg_")
     real(c_double) V, w, Phi, c, gam, o, d, cout, gamout, oout, dout
     integer(c_int) kv, ku, info
-    dimension V(ku, ku), w(ku), Phi(ku, kv), gam(ku), o(ku, ku), gamout(kv), oout(kv, kv), &
-         & H(ku, ku), b(ku), Lamb(ku, ku), solV(ku, ku)
+    dimension V(ku, ku), w(ku), Phi(ku, kv), gam(ku), o(ku, ku), gamout(kv), oout(kv, kv)
+    real(c_double), allocatable :: H(:,:), b(:), Lamb(:,:), solV(:,:)
+    allocate(H(ku, ku), b(ku), Lamb(ku, ku), solV(ku, ku))
     call mergintern ( &
          V, w, Phi, kv, ku, c, gam, o, d, H, b, Lamb, solV, &
          cout, gamout, oout, dout, info)
+    deallocate(H,b,Lamb,solV)
   end subroutine
+
   recursive subroutine dmerg ( &
        & V, w, Phi, kv, ku, c, gam, o, d, &
        & cout, gamout, oout, dout, &
@@ -283,13 +332,17 @@ contains
          a(ku), Hphi(ku, kv), Lamb(ku, ku), &
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
-         & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku), &
-         & dldvev(ku, ku, ku, ku), H(ku, ku), b(ku), solV(ku, ku)
+         & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku)
+    real(c_double), allocatable :: dldvev(:,:,:,:), H(:,:), b(:), solV(:,:)
+    allocate(dldvev(ku, ku, ku, ku), H(ku, ku), b(ku), solV(ku, ku))
     call mergintern ( &
          V, w, Phi, kv, ku, c, gam, o, d, H, b, Lamb, solV, &
          cout, gamout, oout, dout, info)
-    HPhi = matmul(H, Phi)
-    a = matmul(Lamb, b) + w
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,H,ku,Phi,ku,0.0_c_double,HPhi,ku)
+    a = w
+    call dgemv('N',ku,ku,1.0_c_double,Lamb,ku,b,1_c_int,1.0_c_double,a,1_c_int)
+    !HPhi = matmul(H, Phi)
+    !a = matmul(Lamb, b) + w
     call dldv(Lamb, ku, solV, dldvev)
     call dcdv(dldvev, b, ku, dcdvev)
     call dcdw(H, b, ku, dcdwev)
@@ -299,6 +352,7 @@ contains
     call dodv(dldvev, Phi, o, kv, ku, dodvev)
     call dodphi(o, H, Phi, kv, ku, dodphiev)
     call dddv(solV, o, dldvev, ku, dddvev)
+    deallocate(dldvev, H, b, solV)
   end subroutine
 
   recursive subroutine hmerg ( &
@@ -316,12 +370,18 @@ contains
          & dodvev(kv, kv, ku, ku), dodphiev(kv, kv, ku, kv), &
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
          & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku), &
-         & dldvev(ku, ku, ku, ku), H(ku, ku), b(ku), solV(ku, ku)
+         & H(ku, ku), b(ku), solV(ku, ku)
+    real(c_double), allocatable :: dldvev(:,:,:,:)
+    allocate(dldvev(ku, ku, ku, ku))
     call mergintern ( &
          & V, w, Phi, kv, ku, c, gam, o, d, H, b, Lamb, solV, &
          & cout, gamout, oout, dout, info)
-    HPhi = matmul(H, Phi)
-    a = matmul(Lamb, b) + w
+
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,H,ku,Phi,ku,0.0_c_double,HPhi,ku)
+    a = w
+    call dgemv('N',ku,ku,1.0_c_double,Lamb,ku,b,1_c_int,1.0_c_double,a,1_c_int)
+    !HPhi = matmul(H, Phi)
+    !a = matmul(Lamb, b) + w
     call dldv(Lamb, ku, solV, dldvev)
     call dcdv(dldvev, b, ku, dcdvev)
     call dcdw(H, b, ku, dcdwev)
@@ -331,6 +391,7 @@ contains
     call dodv(dldvev, Phi, o, kv, ku, dodvev)
     call dodphi(o, H, Phi, kv, ku, dodphiev)
     call dddv(solV, o, dldvev, ku, dddvev)
+    deallocate(dldvev)
   end subroutine
 
   recursive subroutine tcgodintern (V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)   bind(C, name="tcgodintern_")
@@ -378,8 +439,11 @@ contains
   recursive subroutine ndtcgod (V, w, Phi, x, kv, ku, c, gam, o, d, info)   bind(C, name="ndtcgod_")
     integer(c_int) kv, ku, info
     real(c_double) V, w, Phi, x, c, gam, o, d
-    dimension V(ku, ku), w(ku), Phi(ku, kv), x(ku), gam(kv), o(kv, kv), b(ku), solV(ku, ku)
+    dimension V(ku, ku), w(ku), Phi(ku, kv), x(ku), gam(kv), o(kv, kv)
+    real(c_double), allocatable :: b(:), solV(:,:)
+    allocate(b(ku), solV(ku, ku))
     call tcgodintern(V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)
+    deallocate(b, solV)
   end subroutine
 
   recursive subroutine dtcgod (V, w, Phi, x, kv, ku, c, gam, o, d, &
@@ -408,8 +472,8 @@ contains
          & dgamdvev(kv, ku, ku), dgamdwev(kv, ku), dgamdphiev(kv, ku, kv), &
          & dcdvev(ku, ku), dcdwev(ku), dddvev(ku, ku), &
          & solV(ku, ku), b(ku)
-    allocatable :: dldvev(:,:,:,:), sco(:,:)
-    allocate(dldvev(ku, ku, ku, ku), sco(ku, ku))
+    allocatable :: dldvev(:,:,:,:), sco(:,:), tmpkukv(:,:)
+    allocate(dldvev(ku, ku, ku, ku), sco(ku, ku), tmpkukv(kv, ku))
     call tcgodintern(V, w, Phi, x, kv, ku, c, gam, o, d, b, solV, info)
     call ndinv(solV, ku, dldvev)
     call dcdv(dldvev, b, ku, dcdvev)
@@ -417,20 +481,33 @@ contains
 
     do j = 1, ku
        do i = 1, ku
-          dldvev(i,j,:,:) = transpose(dldvev(i,j,:,:))
+          ! Use sco as temporary variable.
+          do jj = 1,ku
+             do ii = 1,ku
+                sco(ii,jj) = dldvev(i,j,jj,ii)
+             end do
+          end do
+          do jj = 1,ku
+             do ii = 1,ku
+                dldvev(i,j,ii,jj) = sco(ii,jj)
+             end do
+          end do       
+          !dldvev(i,j,:,:) = transpose(dldvev(i,j,:,:))
        enddo
     enddo
     sco = 0.0_c_double
     do j = 1, ku
        sco(j,j) = 1.0_c_double
     enddo
-    call dgamdv(dldvev, Phi, sco,b, kv, ku, dgamdvev)
-    call dgamdw(matmul(solV, Phi), sco, kv, ku, dgamdwev)
-    call dgamdphi(solV, b, kv, ku, dgamdphiev)
     call dodv(dldvev, Phi, sco, kv, ku, dodvev)
     call dodphi(sco, solV, Phi, kv, ku, dodphiev)
+    call dgamdv(dldvev, Phi, sco,b, kv, ku, dgamdvev)
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,solV,ku,Phi,ku,0.0_c_double,tmpkukv,ku)
+    call dgamdw(tmpkukv, sco, kv, ku, dgamdwev)
+    !call dgamdw(matmul(solV, Phi), sco, kv, ku, dgamdwev)
+    call dgamdphi(solV, b, kv, ku, dgamdphiev)
     dddvev = solV
-    deallocate(dldvev, sco)
+    deallocate(dldvev, sco, tmpkukv)
   end subroutine
 
 
@@ -439,8 +516,15 @@ contains
     integer(c_int) k0, k
     intent(in) :: c, gam, o, d, x0, k0, k;   intent(out) :: lik
     dimension gam(k0), x0(k0), o(k0,k0)
-    lik = (c + k*log(2.0_c_double * PI) + d) / (-2.0_c_double) &
-         + dot_product(x0, gam - (matmul(o, x0) / 2.0_c_double))
+    real(c_double), allocatable :: tmpk0(:)
+    allocate(tmpk0(k0))
+    tmpk0 = gam
+    call dgemv('N',k0,k0,-0.5_c_double,o,k0,x0,1_c_int,1.0_c_double,tmpk0,1_c_int)
+    lik = (c + k*log(2.0_c_double * PI) + d) / (-2.0_c_double) + &
+        & ddot(k0, x0, 1_c_int, tmpk0, 1_c_int)  
+    !lik = (c + k*log(2.0_c_double * PI) + d) / (-2.0_c_double) &
+    !     + dot_product(x0, gam - (matmul(o, x0) / 2.0_c_double))
+    deallocate(tmpk0)
   end subroutine
   
   recursive subroutine ndinv (solA, ku, dA)    bind(C, name="ndinv_")
@@ -460,49 +544,64 @@ contains
     !! Post-condition: dA(:,:,i,j)(k,l) = dA(k,l,i,j) = solA(k,i) * solA(j,l)
   end subroutine
   
-  !! dldv(1,1,1,1) and dldv(2,2,2,2) are the same in an example, so there is some symmetry here,
-  !! I guess?
+  !! TODO: should be dsymm not dgemm but for small matrcies it doesn't matter.
   recursive subroutine dldv (Lamb, ku, solV, out)  bind(C, name="dldv_")
     integer(c_int) ku
     real(c_double) Lamb, solV, out
     intent(in) :: Lamb, ku, solV;   intent(out) :: out
-    dimension Lamb(ku,ku), solV(ku,ku), out(ku,ku,ku,ku), tmp(ku,ku,ku,ku)
+    dimension Lamb(ku,ku), solV(ku,ku), out(ku,ku,ku,ku)
+    real(c_double), allocatable :: tmp(:,:,:,:), tmpkuku(:,:)
+    allocate(tmp(ku,ku,ku,ku), tmpkuku(ku,ku))
     call ndinv(solV, ku, tmp)
     do j=1,ku
        do i=1,ku
-          out(:,:,i,j) = matmul(Lamb, matmul(tmp(:,:,i,j), Lamb))
+          call dgemm('N','N',ku,ku,ku,1.0_c_double,tmp(:,:,i,j),ku,Lamb,ku,0.0_c_double,tmpkuku,ku)
+          call dgemm('N','N',ku,ku,ku,1.0_c_double,Lamb,ku,tmpkuku,ku,0.0_c_double,out(:,:,i,j),ku)
+          !out(:,:,i,j) = matmul(Lamb, matmul(tmp(:,:,i,j), Lamb))
        enddo
     enddo
     !! Post-condition: out(:,:,i,j) = d Lambda / d V_ij
+    deallocate(tmp)
   end subroutine
 
   recursive subroutine dodv (dLdVev, Phi_u, ScOmega, kv, ku, out)  bind(C, name="dodv_")
     integer(c_int) kv, ku
     real(c_double) dLdVev, Phi_u, ScOmega, out
     intent(in) :: dLdVev, Phi_u, ScOmega, kv, ku;   intent(out) :: out
-    dimension ScOmega(ku,ku), dLdVev(ku,ku,ku,ku), Phi_u(ku,kv), out(kv, kv, ku, ku), A(ku,kv)
-    A = matmul(ScOmega, Phi_u)
+    dimension ScOmega(ku,ku), dLdVev(ku,ku,ku,ku), Phi_u(ku,kv), out(kv, kv, ku, ku)
+    real(c_double), allocatable :: tmpkukv(:,:), A(:,:)
+    allocate(tmpkukv(ku,kv), A(ku,kv))
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,ScOmega,ku,Phi_u,ku,0.0_c_double,A,ku)
+    !A = matmul(ScOmega, Phi_u)
     do j=1,ku
        do i=1,ku
-          out(:,:,i,j) = - matmul(transpose(A), matmul(dLdVev(:,:,i,j) , A))
+          call dgemm('N','N',ku,kv,ku,1.0_c_double,dLdVev(:,:,i,j),ku,A,ku,0.0_c_double,tmpkukv,ku)
+          call dgemm('T','N',kv,kv,ku,-1.0_c_double,A,ku,tmpkukv,ku,0.0_c_double,out(:,:,i,j),kv)
+          !out(:,:,i,j) = - matmul(transpose(A), matmul(dLdVev(:,:,i,j) , A))
        enddo
     enddo
+    deallocate(tmpkukv, A)
   end subroutine
 
   recursive subroutine dodphi (ScOmega, H_u, Phi_u, kv, ku, out) bind(C, name="dodphi_")
     integer(c_int) kv, ku
     real(c_double) ScOmega, H_u, Phi_u, out
     intent(in) :: ScOmega, H_u, Phi_u, kv, ku;   intent(out) :: out
-    dimension ScOmega(ku,ku), Phi_u(ku,kv), H_u(ku,ku), out(kv,kv,ku,kv), &
-         & RM(kv,ku), LM(kv, ku), B(ku,ku)
+    dimension ScOmega(ku,ku), Phi_u(ku,kv), H_u(ku,ku), out(kv,kv,ku,kv)
+    real(c_double), allocatable :: RM(:,:), LM(:,:), B(:,:)
+    allocate(RM(kv,ku), LM(kv, ku), B(ku,ku))
     out = 0._c_double
-    B = matmul(ScOmega, H_u)
-    LM = matmul(transpose(Phi_u), B)
-    RM = transpose(matmul(B, Phi_u))
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,ScOmega,ku,H_u,ku,0.0_c_double,B,ku)
+    call dgemm('T','N',kv,ku,ku,1.0_c_double,Phi_u,ku,B,ku,0.0_c_double,LM,kv)
+    call dgemm('T','T',kv,ku,ku,1.0_c_double,Phi_u,ku,B,ku,0.0_c_double,RM,kv)
+    !B = matmul(ScOmega, H_u)
+    !LM = matmul(transpose(Phi_u), B)
+    !RM = transpose(matmul(B, Phi_u))
     do j = 1, kv
        out(:,j,:,j) = out(:,j,:,j) + LM
        out(j,:,:,j) = out(j,:,:,j) + RM
     enddo
+    deallocate(RM, LM, B)
   end subroutine
 
   recursive subroutine dgamdw (HPhi, ScOmega, kv, ku, out) bind(C, name="dgamdw_")
@@ -510,19 +609,24 @@ contains
     real(c_double) HPhi, ScOmega, out
     intent(in) :: HPhi, ScOmega, kv, ku;    intent(out) :: out
     dimension ScOmega(ku,ku), HPhi(ku,kv), out(kv,ku)
-    out(:,:) = - matmul(transpose(HPhi), ScOmega)
+    call dgemm('T','N',kv,ku,ku,-1.0_c_double,HPhi,ku,ScOmega,ku,0.0_c_double,out,kv)
+    !out(:,:) = - matmul(transpose(HPhi), ScOmega)
   end subroutine
 
   recursive subroutine dgamdphi (H_u, b_u, kv, ku, out)  bind(C, name="dgamdphi_")
     integer(c_int) kv, ku
     real(c_double) H_u, b_u, out
     intent(in) :: H_u, b_u, kv, ku;  intent(out) :: out
-    dimension H_u(ku,ku), b_u(ku), out(kv,ku,kv), d(ku)
+    dimension H_u(ku,ku), b_u(ku), out(kv,ku,kv)
+    real(c_double), allocatable :: d(:)
+    allocate(d(ku))
     out = 0._c_double
-    d = matmul(transpose(H_u), b_u)
+    call dgemv('T',ku,ku,1.0_c_double,H_u,ku,b_u,1_c_int,0.0_c_double,d,1_c_int)
+    !d = matmul(transpose(H_u), b_u)
     do j = 1, kv
        out(j,:,j) = d
     enddo
+    deallocate(d)
   end subroutine
 
   recursive subroutine dgamdv (dLdVev, Phi_u, ScOmega, b_u, kv, ku, out) bind(C, name="dgamdv_")
@@ -553,7 +657,8 @@ contains
     real(c_double) H_u, b_u, out
     intent(in) :: H_u, b_u, ku;   intent(out) :: out
     dimension H_u(ku,ku), b_u(ku), out(ku)
-    out = - 2._c_double * matmul(transpose(H_u), b_u)
+    call dgemv('T',ku,ku,-2.0_c_double,H_u,ku,b_u,1_c_int,0.0_c_double,out,1_c_int)
+    !out = - 2._c_double * matmul(transpose(H_u), b_u)
   end subroutine
   
   recursive subroutine dcdv (dLdVev, b_u, ku, out)   bind(C, name="dcdv_")
@@ -566,11 +671,16 @@ contains
     real(c_double) dLdVev, b_u, out
     intent(in) :: dLdVev, b_u, ku;   intent(out) :: out
     dimension dLdVev(ku,ku,ku,ku), b_u(ku), out(ku,ku)
+    real(c_double), allocatable :: tmpku(:)
+    allocate(tmpku(ku))
     do j=1,ku
        do i=1,ku
-          out(i,j) = - dot_product(b_u, matmul(dLdVev(:,:,i,j), b_u))
+          call dgemv('N',ku,ku,1.0_c_double,dLdVev(:,:,i,j),ku,b_u,1_c_int,0.0_c_double,tmpku,1_c_int)
+          out(i,j) = -1.0_c_double * ddot(ku, b_u, 1_c_int, tmpku, 1_c_int)
+          !out(i,j) = - dot_product(b_u, matmul(dLdVev(:,:,i,j), b_u))
        enddo
     enddo
+    deallocate(tmpku)
   end subroutine
 
   recursive subroutine dddv (solV, o, dldvev, ku, out)    bind(C, name="dddv_")
@@ -596,13 +706,18 @@ contains
     real(c_double) solV, o, dldvev, out
     intent(in) :: solV, o, dldvev, ku;   intent(out) :: out
     dimension solV(ku,ku), o(ku,ku), dldvev(ku,ku,ku,ku), out(ku,ku)
+    real(c_double), allocatable :: tmp1(:,:)
+    allocate(tmp1(ku,ku))
+    tmp1 = solV + o
     out = solV
     do j=1,ku
        do i=1,ku
           !! The (solV+o) sum is done the 2nd time and should be optimised away later.
-          out(i,j) = out(i,j) - sum((solV + o) * dldvev(:,:,i,j))
+          out(i,j) = out(i,j) - ddot(ku*ku,tmp1,1_c_int,dldvev(:,:,i,j),1_c_int)
+          !out(i,j) = out(i,j) - sum((solV + o) * dldvev(:,:,i,j))
        enddo
     enddo
+    deallocate(tmp1)
   end subroutine
   
   !! Compute the derivative of likelihood of the direct children of the global root.
@@ -618,32 +733,45 @@ contains
          & dgamdvev(kr,ku,ku), dgamdwev(kr,ku), dgamdphiev(kr,ku,kr), &
          & dcdvev(ku,ku), dcdwev(ku), dddvev(ku,ku), dlikdv(ku,ku), dlikdw(ku), dlikdphi(ku,kr)
     integer(c_int) :: i, j
+    real(c_double), allocatable :: tmpkr1(:)
+    allocate(tmpkr1(kr))
     do j=1,ku
        do i=1,ku
-          dlikdv(i,j)= dot_product(x0, dgamdvev(:,i,j) - matmul(dodvev(:,:,i,j), x0)/2.0_c_double) &
-               - (dcdvev(i,j) + dddvev(i,j)) / 2.0_c_double
+          tmpkr1 = dgamdvev(:,i,j)
+          call dgemv('N',kr,kr,-0.5_c_double,dodvev(:,:,i,j),kr,x0,1_c_int,1.0_c_double,tmpkr1,1_c_int)
+          dlikdv(i,j) = ddot(kr,x0,1_c_int, tmpkr1,1_c_int) - (dcdvev(i,j) + dddvev(i,j)) / 2.0_c_double
+          !dlikdv(i,j)= dot_product(x0, dgamdvev(:,i,j) - matmul(dodvev(:,:,i,j), x0)/2.0_c_double) &
+          !     - (dcdvev(i,j) + dddvev(i,j)) / 2.0_c_double
        enddo
     enddo
-    call symdiff0d(dlikdv, ku)
+    call symdiff0d(dlikdv, ku, tmpkr1)
     do j=1,kr
        do i=1,ku
-          dlikdphi(i,j)= dot_product(x0, dgamdphiev(:,i,j) - matmul(dodphiev(:,:,i,j), x0)/2.0_c_double)
+          tmpkr1 = dgamdphiev(:,i,j)
+          call dgemv('N',kr,kr,-0.5_c_double,dodphiev(:,:,i,j),kr,x0,1_c_int,1.0_c_double,tmpkr1,1_c_int)
+          dlikdphi(i,j)= ddot(kr,x0,1_c_int,tmpkr1,1_c_int)
+          !dlikdphi(i,j)= dot_product(x0, dgamdphiev(:,i,j) - matmul(dodphiev(:,:,i,j), x0)/2.0_c_double)
        enddo
     enddo
     do i=1,ku
-       dlikdw(i)= dot_product(x0, dgamdwev(:,i)) - dcdwev(i) / 2.0_c_double
+       dlikdw(i)= ddot(kr,x0, 1_c_int,dgamdwev(:,i),1_c_int) - dcdwev(i) / 2.0_c_double
     enddo
+    deallocate(tmpkr1)
   end subroutine
   
-  recursive subroutine symdiff0d(x, k) bind(C, name="symdiff0d_")
-    real(c_double) x
-    integer(c_int) k
-    intent(in) :: k;   intent(inout) x
-    dimension x(k,k), tmp(k)
-    tmp = (/(x(j,j), j=1, k)/)
-    x = x + transpose(x)
+  recursive subroutine symdiff0d(x, k, wsp)
+    dimension x(k,k), wsp(k)
+    do j = 1,k
+      wsp(j) = x(j,j)
+    end do
+    do j = 1,k
+       do i = 1,k
+         x(i,j) = x(i,j) + x(j,i)
+       end do
+    end do
+    !x = x + transpose(x)
     do j = 1, k
-       x(j,j) = x(j,j) - tmp(j)
+       x(j,j) = x(j,j) - wsp(j)
     enddo
   end subroutine
 
@@ -664,28 +792,57 @@ contains
          & dcdvev(ksa, ksa), dcdwev(ksa), dddvev(ksa, ksa), &
          & dlikdv(ksa, ksa), dlikdw(ksa), dlikdphi(ksa, ksb), &
          & Fa(ksb, ksr), za(ksb), Ka(ksb, ksb)
-    
-    Fa = matmul(HPhib, Fb)
-    za = matmul(HPhib, zb) + ab
-    Ka = matmul(HPhib, matmul(Kb, transpose(HPhib))) + Lambb
+
+    real(c_double), allocatable :: tmpkscksb(:,:), Fax0(:), zaFax02(:), tmpksb1(:), tmpksbksb(:,:)
+    allocate(tmpkscksb(ksc,ksb), Fax0(ksb), zaFax02(ksb), tmpksb1(ksb), tmpksbksb(ksb,ksb))
+
+    call dgemm('N','N',ksb,ksr,ksc,1.0_c_double,HPhib,ksb,Fb,ksc,0.0_c_double,Fa,ksb)
+    za = ab
+    call dgemv('N',ksb,ksc,1.0_c_double,HPhib,ksb,zb,1_c_int,1.0_c_double,za,1_c_int)
+    call dgemm('N','T',ksc,ksb,ksc,1.0_c_double,Kb,ksc,HPhib,ksb,0.0_c_double,tmpkscksb,ksc)
+    Ka = Lambb
+    call dgemm('N','N',ksb,ksb,ksc,1.0_c_double,HPhib,ksb,tmpkscksb,ksc,1.0_c_double,Ka,ksb)
+    !Fa = matmul(HPhib, Fb)
+    !za = matmul(HPhib, zb) + ab
+    !Ka = matmul(HPhib, matmul(Kb, transpose(HPhib))) + Lambb
+    call dgemv('N',ksb,ksr,1.0_c_double,Fa,ksb,x0,1_c_int,0.0_c_double,Fax0,1_c_int)
+    zaFax02 = za + Fax0/2.0_c_double
     do j=1,ksa
        do i=1,ksa
-          dlikdv(i,j)=dot_product(matmul(Fa,x0), -matmul(dodvev(:,:,i,j), za + matmul(Fa, x0)/(2.0_c_double))&
-               + dgamdvev(:,i,j)) &
-               +( dcdvev(i,j) + dot_product(za, matmul(dodvev(:,:,i,j), za) - 2.0_c_double * dgamdvev(:,i,j)) &
-               + dddvev(i,j) + sum(dodvev(:,:,i,j) * Ka) ) / (-2.0_c_double)
+          tmpksb1 = dgamdvev(:,i,j)
+          call dgemv('N',ksb,ksb,-1.0_c_double,dodvev(:,:,i,j),ksb,zaFax02,1_c_int,1.0_c_double,tmpksb1,1_c_int)
+          dlikdv(i,j) = ddot(ksb, Fax0, 1_c_int, tmpksb1, 1_c_int)
+          tmpksb1 = dgamdvev(:,i,j)
+          call dgemv('N',ksb,ksb,1.0_c_double,dodvev(:,:,i,j),ksb,za,1_c_int,-2.0_c_double,tmpksb1,1_c_int)
+          dlikdv(i,j) = dlikdv(i,j) + (ddot(ksb, za, 1_c_int, tmpksb1, 1_c_int) + dcdvev(i,j) + dddvev(i,j) + &
+                & ddot(ksb*ksb, dodvev(1,1,i,j), 1_c_int, Ka(1,1), 1_c_int))/(-2.0_c_double)
+          !dlikdv(i,j)=dot_product(Fax0, -matmul(dodvev(:,:,i,j), za + Fax0/(2.0_c_double))&
+          !     + dgamdvev(:,i,j)) &
+          !     +( dcdvev(i,j) + dot_product(za, matmul(dodvev(:,:,i,j), za) - 2.0_c_double * dgamdvev(:,i,j)) &
+          !     + dddvev(i,j) + sum(dodvev(:,:,i,j) * Ka) ) / (-2.0_c_double)
        enddo
     enddo
-    call symdiff0d(dlikdv, ksa)
+    call symdiff0d(dlikdv, ksa, dlikdw) ! use dlikdw as workspace
     do j=1,ksb
        do i=1,ksa
-          dlikdphi(i,j)=dot_product(matmul(Fa,x0), - matmul(dodphiev(:,:,i,j), za + matmul(Fa, x0)/(2.0_c_double))&
-               + dgamdphiev(:,i,j)) &
-               + (dot_product(za, matmul(dodphiev(:,:,i,j), za) - 2.0_c_double * dgamdphiev(:,i,j)) &
-               + sum(dodphiev(:,:,i,j) * Ka) ) / (-2.0_c_double)
+          tmpksb1 = dgamdphiev(:,i,j)
+          call dgemv('N',ksb,ksb,-1.0_c_double,dodphiev(:,:,i,j),ksb,zaFax02,1_c_int,1.0_c_double,tmpksb1,1_c_int)
+          dlikdphi(i,j) = ddot(ksb, Fax0, 1_c_int, tmpksb1, 1_c_int)
+          tmpksb1 = dgamdphiev(:,i,j)
+          call dgemv('N',ksb,ksb,1.0_c_double,dodphiev(:,:,i,j),ksb,za,1_c_int,-2.0_c_double,tmpksb1,1_c_int)
+          dlikdphi(i,j) = dlikdphi(i,j) + (ddot(ksb, za, 1_c_int, tmpksb1, 1_c_int) + &
+                & ddot(ksb*ksb, dodphiev(1,1,i,j), 1_c_int, Ka(1,1), 1_c_int))/(-2.0_c_double)
+          !dlikdphi(i,j)=dot_product(Fax0, - matmul(dodphiev(:,:,i,j), za + Fax0/(2.0_c_double))&
+          !     + dgamdphiev(:,i,j)) &
+          !     + (dot_product(za, matmul(dodphiev(:,:,i,j), za) - 2.0_c_double * dgamdphiev(:,i,j)) &
+          !     + sum(dodphiev(:,:,i,j) * Ka) ) / (-2.0_c_double)
        enddo
     enddo
-    dlikdw(:) = matmul(transpose(dgamdwev), matmul(Fa, x0) + za) - dcdwev/(2.0_c_double)
+    zaFax02 = Fax0 + za
+    dlikdw  = dcdwev
+    call dgemv('T',ksb,ksa,1.0_c_double,dgamdwev,ksb,zaFax02,1_c_int,-0.5_c_double,dlikdw,1_c_int)
+    !dlikdw(:) = matmul(transpose(dgamdwev), Fax0 + za) - dcdwev/(2.0_c_double)
+    deallocate(tmpkscksb, Fax0, zaFax02, tmpksb1, tmpksbksb)
   end subroutine
 
   recursive subroutine hodvdvtip (solVPhi, solV, kv, ku, i, j, p, q, dvdv)    bind(C, name="hodvdvtip_")
@@ -868,7 +1025,12 @@ contains
     integer(c_int) kr
     intent(in) :: x0, ho, hgam, hc, hd, kr;   intent(out) :: out
     dimension ho(kr,kr), hgam(kr), x0(kr)
-    out = dot_product(x0, hgam - matmul(ho, x0) / 2.0_c_double ) - (hc + hd) / 2.0_c_double
+    real(c_double), allocatable :: tmp(:)
+    allocate(tmp(kr))
+    tmp = hgam
+    call dgemv('N',kr,kr,-0.5_c_double,ho,kr,x0,1_c_int,1.0_c_double,tmp,1_c_int)
+    out = ddot(kr, x0, 1_c_int, tmp, 1_c_int) - (hc + hd) / 2.0_c_double
+    deallocate(tmp)
   end subroutine
 
   recursive subroutine hselfbktip(solV, x, w, Phi, kv, ku, solVPhi, solVxw) bind(C, name="hselfbktip_")
@@ -876,52 +1038,77 @@ contains
     integer(c_int) kv, ku
     intent(in) :: solV, x, w, Phi, kv, ku;   intent(out) :: solVPhi, solVxw
     dimension solV(ku,ku), x(ku), w(ku), Phi(ku,kv), solVPhi(ku,kv), solVxw(ku)
-    solVPhi = matmul(solV, Phi)
-    solVxw  = matmul(solV, x - w)
+    real(c_double), allocatable :: tmp(:)
+    allocate(tmp(ku))
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,solV,ku,Phi,ku,0.0_c_double,solVPhi,ku)
+    tmp = x - w
+    call dgemv('N',ku,ku,1.0_c_double,solV,ku,tmp,1_c_int,0.0_c_double,solVxw,1_c_int)
+    !solVPhi = matmul(solV, Phi)
+    !solVxw  = matmul(solV, x - w)
+    deallocate(tmp)
   end subroutine
 
   recursive subroutine hselfbkgen(solV, Lamb, sO, Phi, b, H, kv, ku, &
        & solVLsO, solVLsOPhi, VmVLV, solVLb, Hto) bind(C, name="hselfbkgen_")
     integer(c_int) kv, ku
     real(c_double) solV, Lamb, sO, Phi, b, H, &
-         & solVLsO, solVLsOPhi, VmVLV, solVLb, Hto
+         & solVLsO, VmVLV, solVLb, Hto
     intent(in)  :: solV, Lamb, sO, Phi, b, H, kv, ku
     intent(out) :: solVLsO, solVLsOPhi, VmVLV, solVLb, Hto
     dimension solV(ku,ku), Lamb(ku,ku), sO(ku,ku), Phi(ku,kv), b(ku), H(ku,ku), &
-         & solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku), &
-         & solVL(ku,ku)
-    solVL      = matmul(solV, Lamb)
-    solVLb     = matmul(solVL, b)
-    solVLsO    = matmul(solVL, sO)
-    solVLsOPhi = matmul(solVLsO, Phi)
-    VmVLV      = solV - matmul(solVL, solV)
-    Hto        = matmul(transpose(H), sO)
+         & solVLsO(ku,ku), solVLsOPhi(ku*kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku)!, &
+         !& solVL(ku,ku)
+    real(c_double), target :: solVLsOPhi
+    real(c_double), contiguous, pointer :: solVL(:,:)
+    solVL(1:ku,1:ku) => solVLsOPhi(1:)
+    !! Use solVLsOPhi to store solV
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,solV,ku,Lamb,ku,0.0_c_double,solVL,ku)
+    VmVLV = solV
+    call dgemm('N','N',ku,ku,ku,-1.0_c_double,solVL,ku,solV,ku,1.0_c_double,VmVLV,ku)
+    call dgemm('T','N',ku,ku,ku,1.0_c_double,H,ku,sO,ku,0.0_c_double,Hto,ku)
+    call dgemv('N',ku,ku,1.0_c_double,solVL,ku,b,1_c_int,0.0_c_double,solVLb,1_c_int)
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,solVL,ku,sO,ku,0.0_c_double,solVLsO,ku)
+    !! -- Stop messing with solVLsOPhi
+    call dgemm('N','N',ku,kv,ku,1.0_c_double,solVLsO,ku,Phi,ku,0.0_c_double,solVLsOPhi,ku)
+    
+    !solVL      = matmul(solV, Lamb)
+    !solVLb     = matmul(solVL, b)
+    !solVLsO    = matmul(solVL, sO)
+    !solVLsOPhi = matmul(solVLsO, Phi)
+    !VmVLV      = solV - matmul(solVL, solV)
+    !Hto        = matmul(transpose(H), sO)
   end subroutine
 
   !
   ! TODO: all the solVLsOPhi etc. are slow. I should make it the transpose so memory access can be faster.
   !
-  recursive subroutine dbledifftopgen(ictx, i,j,m,n, kr,kv,ku, solVLsO,solVLsOPhi,VmVLV,solVLB,Hto,x0,d2L) &
+  recursive subroutine dbledifftopgen(ictx, i,j,m,n, kr,kv,ku, solVLsO,solVLsOPhi,VmVLV,solVLb,Hto,x0,d2L) &
        & bind(C, name="dbledifftopgen_")
     integer(c_int) ictx, i, j, m, n, kr, kv, ku
-    real(c_double) solVLsO,solVLsOPhi,VmVLV,solVLB,Hto,x0,d2L
-    dimension solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku), x0(kr), ho(kv,kv), hgam(kv)
-    call ddsfgen(ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, VmVLV, solVLB, Hto,ho,hgam,hc,hd)
+    real(c_double) solVLsO,solVLsOPhi,VmVLV,solVLb,Hto,x0,d2L
+    dimension solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku), x0(kr)
+    allocatable :: ho(:,:), hgam(:)
+    allocate(ho(kv,kv), hgam(kv))
+    call ddsfgen(ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, VmVLV, solVLb, Hto,ho,hgam,hc,hd)
     call hlchainrule (x0, ho, hgam, hc, hd, kr, d2L)
+    deallocate(ho, hgam)
   end subroutine
   recursive subroutine dbledifftoptip(ictx, i,j,m,n, kr,kv,ku, solV, solVPhi, solVxw, x0, d2L) &
        & bind(C, name="dbledifftoptip_")
     integer(c_int) ictx, i,j,m,n, kr,kv,ku
     real(c_double) solV, solVPhi, solVxw, x0, d2L
-    dimension solV(ku,ku), solVPhi(ku,kv), solVxw(ku), x0(kr), ho(kv,kv), hgam(kv)
+    dimension solV(ku,ku), solVPhi(ku,kv), solVxw(ku), x0(kr)
+    allocatable :: ho(:,:), hgam(:)
+    allocate(ho(kv,kv), hgam(kv))
     call ddsftip(ictx, i,j,m,n, kv,ku, solV, solVPhi, solVxw, ho,hgam,hc,hd)
     call hlchainrule (x0, ho, hgam, hc, hd, kr, d2L)
+    deallocate(ho, hgam)
   end subroutine
   
   recursive subroutine ddsfgen(ictx, i,j,m,n, kv,ku, &
-       & solVLsO, solVLsOPhi, VmVLV, solVLB, Hto, ho, hgam, hc, hd) bind(C, name="ddsfgen_")
+       & solVLsO, solVLsOPhi, VmVLV, solVLb, Hto, ho, hgam, hc, hd) bind(C, name="ddsfgen_")
     integer(c_int) ictx, i,j,m,n, kv,ku
-    real(c_double) solVLsO, solVLsOPhi, VmVLV, solVLB, Hto, ho, hgam, hc, hd
+    real(c_double) solVLsO, solVLsOPhi, VmVLV, solVLb, Hto, ho, hgam, hc, hd
     intent(in)  :: ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, VmVLV, solVLb, Hto;  intent(out) :: ho, hgam, hc, hd
     dimension solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku), ho(kv,kv), hgam(kv)
     ho(:,:)= 0_c_double;  hgam(:)= 0_c_double;  hc= 0_c_double;  hd= 0_c_double
@@ -945,6 +1132,7 @@ contains
        call hcdwdwgen (Hto, ku, i,m, hc)
     end select
   end subroutine
+
   recursive subroutine ddsftip(ictx, i,j,m,n, kv,ku, solV, solVPhi, solVxw, ho,hgam,hc,hd) bind(C, name="ddsftip_")
     integer(c_int) ictx, i,j,m,n, kv,ku
     real(c_double) solV, solVPhi, solVxw, ho,hgam,hc,hd
@@ -1014,38 +1202,45 @@ contains
     type(c_ptr), intent(in) :: falfm_c, fmg_c
     type(c_ptr) :: i_c
     type(llst), pointer :: falfm_p, fmg_p
-    !! real(c_double), pointer :: lamb_beta(:,:), falfm(:,:), fmg(:,:)
-    !! gfortran doesn't like the `contiguous` attribute for some reasons...
-    real(c_double), contiguous, pointer :: lamb_beta(:,:), falfm(:,:), fmg(:,:)
+    real(c_double), contiguous, pointer :: lamb_beta(:,:)
+    real(c_double), allocatable :: lamb(:,:)
     call c_f_pointer(falfm_c, falfm_p);    lamb_beta(1:kbu,1:kbu) => falfm_p%dat(1:)
     call c_f_pointer(fmg_c, fmg_p)
-    i_c = fmg_p%nxt           ! Can be NULL if m is a direct child of beta
+    allocate(lamb(kbu,kbu))
+    lamb(:,:) = lamb_beta(:,:) ! Copy to new memory so it doesn't screw up dgemm
+    i_c = fmg_p%nxt            ! Can be NULL if m is a direct child of beta
     if (c_associated(i_c)) then
-       call c_f_pointer(i_c, fmg_p);    fmg(1:kmv,1:kbu) => fmg_p%dat(1:)
-       falfm(1:kbu,1:kmv) => falfm_p%dat(1:)
-       falfm = matmul(lamb_beta, transpose(fmg))
+       call c_f_pointer(i_c, fmg_p);
+       call dgemm('N','T',kbu,kmv,kbu,1.0_c_double,lamb,kbu,fmg_p%dat,kmv,0.0_c_double,falfm_p%dat,kbu)
+       !falfm = matmul(lamb, transpose(fmg))
     endif
+    deallocate(lamb)
   end subroutine
 
   ! The fmlfm, etc which is used in dqmmkda comes from here before calling the next iteration.
   ! fmlfm_new needs to be 4 dimensional after the update. 
   recursive subroutine updategbk(kv, ku, fmlfm_c, fmlfm_new, fm_c, fm_new, qm_c, qm_new, &
-       & Lamb, HPhi, a)  bind(C, name="updategbk_")
+       & Lamb, HPhi, a, mdim)  bind(C, name="updategbk_")
     implicit none
-    integer(c_int), intent(in) :: kv,ku
+    integer(c_int), intent(in) :: kv,ku, mdim
     type(c_ptr), intent(in) :: fmlfm_c, fm_c, qm_c
     real(c_double), intent(in) :: Lamb(ku,ku), HPhi(ku,kv), a(ku)
     type(c_ptr), intent(out) :: fmlfm_new, fm_new, qm_new
     type(llst), pointer :: tmp_p
-    !!real(c_double), pointer :: dcur(:,:), dnew(:,:), qcur(:), qnew(:)
-    real(c_double), contiguous, pointer :: dcur(:,:), dnew(:,:), qcur(:), qnew(:)
+    real(c_double), contiguous, pointer :: dcur(:,:), dnew(:,:), qcur(:), qnew(:), &
+                                         & tmpkvkthis(:,:)
     type(c_ptr) :: i_c
-    
+    real(c_double), allocatable :: tmpkvku(:,:)
+    real(c_double), allocatable, target :: stkvkmax(:)
+    allocate(tmpkvku(kv,ku), stkvkmax(kv*mdim))
+
     i_c = fmlfm_c
 10  call c_f_pointer(i_c, tmp_p);
     dcur(1:kv,1:kv) => tmp_p%dat
     dnew(1:ku,1:ku) => tmp_p%dat
-    dnew = matmul(HPhi, matmul(dcur, transpose(HPhi)))
+    call dgemm('N','T',kv,ku,kv,1.0_c_double,dcur,kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
+    call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dnew,ku)
+    !dnew = matmul(HPhi, matmul(dcur, transpose(HPhi)))
     tmp_p%siz = ku
     if (c_associated(tmp_p%nxt)) then
        i_c = tmp_p%nxt
@@ -1059,9 +1254,12 @@ contains
 
     i_c = fm_c
 20  call c_f_pointer(i_c, tmp_p)
+    tmpkvkthis(1:kv,1:tmp_p%siz) => stkvkmax(1:(kv*(tmp_p%siz)))
     dcur(1:kv,1:tmp_p%siz) => tmp_p%dat
     dnew(1:ku,1:tmp_p%siz) => tmp_p%dat
-    dnew = matmul(HPhi, dcur)
+    tmpkvkthis = dcur
+    call dgemm('N','N',ku,tmp_p%siz,kv,1.0_c_double,HPhi,ku,tmpkvkthis,kv,0.0_c_double,dnew,ku)
+    !dnew = matmul(HPhi, tmpkvkthis)
     if (c_associated(tmp_p%nxt)) then
        i_c = tmp_p%nxt
        goto 20
@@ -1076,7 +1274,10 @@ contains
 30  call c_f_pointer(i_c, tmp_p)
     qcur(1:kv) => tmp_p%dat
     qnew(1:ku) => tmp_p%dat
-    qnew = matmul(HPhi, qcur) + a
+    tmpkvku(:,1) = qcur(:)
+    qnew = a
+    call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,tmpkvku(:,1),1_c_int,1.0_c_double,qnew,1_c_int)
+    !qnew = matmul(HPhi, qcur) + a
     tmp_p%siz = ku
     if (c_associated(tmp_p%nxt)) then
        i_c = tmp_p%nxt
@@ -1087,11 +1288,11 @@ contains
     qnew(1:ku) => tmp_p%dat
     qnew(1:ku) = a
     tmp_p%siz = ku
+    deallocate(tmpkvku, stkvkmax)
   end subroutine
 
   recursive subroutine d2Lijmn(ictx, i,j,m,n, kr,kv,ku, q1m, fm, dFm1, dqm1, dkm1, k, dodtn, dgamdtn, &
        & x0, istip,solVLsO,solVLsOPhi,VmVLV,solVLB,Hto, d2L)
-    implicit none
     integer(c_int) :: ictx, istip, i,j,m,n,kr,kv,ku
     !!real(c_double), pointer :: fm(:,:), q1m(:)
     real(c_double), contiguous, pointer :: fm(:,:), q1m(:)
@@ -1101,20 +1302,55 @@ contains
     real(c_double) :: solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku)
     !! If istip:      solV          , solVPhi,         , IGNORED,      solVxw,     IGNORED
     real(c_double) :: d2L
-
+    real(c_double), allocatable :: tmpkvkr(:,:)
+    allocate(tmpkvkr(kv,kr))
     if (istip == 1_c_int) then
        call ddsfgen(ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, VmVLV, solVLB, Hto, ho, hgam, hc, hd)
     else
        call ddsftip(ictx, i,j,m,n, kv,ku, solVLsO, solVLsOPhi, solVLB,             ho, hgam, hc, hd)
     endif
-    ho1 =  matmul(transpose(dFm1), matmul(dodtn, fm)) + matmul(transpose(fm), matmul(ho, fm)) + &
-         & matmul(transpose(fm),   matmul(dodtn, dFm1))
-    hgam1 = matmul(transpose(dFm1), dgamdtn - matmul(dodtn, q1m)) &
-         & + matmul(transpose(fm), hgam - matmul(ho, q1m) - matmul(dodtn, dqm1))
-    hc1 = hc + dot_product(q1m, 2.0_c_double*(matmul(dodtn,dqm1) - hgam) + matmul(ho,q1m)) &
-         & - 2.0_c_double * dot_product(dqm1,dgamdtn)
-    hd1 = hd + sum(transpose(ho) * k) + sum(transpose(dodtn) * dkm1)
-    call hlchainrule (x0, ho1, hgam1, hc1, hd1, kr, d2L)    
+    ! -- Compute ho1
+    call dgemm('N','N',kv,kr,kv,1.0_c_double,dodtn,kv,fm,kv,0.0_c_double,tmpkvkr,kv)
+    call dgemm('T','N',kr,kr,kv,1.0_c_double,dFm1,kv,tmpkvkr,kv,0.0_c_double,ho1,kr)
+    call dgemm('N','N',kv,kr,kv,1.0_c_double,ho,kv,fm,kv,0.0_c_double,tmpkvkr,kv)
+    call dgemm('T','N',kr,kr,kv,1.0_c_double,fm,kv,tmpkvkr,kv,1.0_c_double,ho1,kr)
+    call dgemm('N','N',kv,kr,kv,1.0_c_double,dodtn,kv,dFm1,kv,0.0_c_double,tmpkvkr,kv)
+    call dgemm('T','N',kr,kr,kv,1.0_c_double,fm,kv,tmpkvkr,kv,1.0_c_double,ho1,kr)
+    
+    ! -- Compute hgam1
+    tmpkvkr(:,1) = dgamdtn
+    call dgemv('N',kv,kv,-1.0_c_double,dodtn,kv,q1m,1_c_int,1.0_c_double,tmpkvkr(:,1),1_c_int)
+    call dgemv('T',kv,kr, 1.0_c_double,dFm1,kv,tmpkvkr(:,1),1_c_int,0.0_c_double,hgam1,1_c_int)
+    tmpkvkr(:,1) = hgam
+    call dgemv('N',kv,kv,-1.0_c_double,dodtn,kv,dqm1,1_c_int,1.0_c_double,tmpkvkr(:,1),1_c_int)
+    ! -- just BTW update this value into hc1. This is hgam - matmul(dodtn,dqm1) in tmpkvkr(:,1)
+    hc1 = hc -2.0_c_double * ddot(kv, q1m, 1_c_int, tmpkvkr(:,1), 1_c_int)
+    call dgemv('N',kv,kv,-1.0_c_double,ho,kv,q1m,1_c_int,1.0_c_double,tmpkvkr(:,1),1_c_int)
+    call dgemv('T',kv,kr, 1.0_c_double,fm,kv,tmpkvkr(:,1),1_c_int,1.0_c_double,hgam1,1_c_int)
+
+    ! -- Compute hc1
+    hc1 = hc1 - 2.0_c_double * ddot(kv, dqm1, 1_c_int, dgamdtn, 1_c_int)
+    call dgemv('N',kv,kv,1.0_c_double,ho,kv,q1m,1_c_int,0.0_c_double,tmpkvkr(:,1),1_c_int)
+    hc1 = hc1 + ddot(kv, q1m, 1_c_int, tmpkvkr(:,1), 1_c_int)
+
+    ! -- Compute hd1
+    hd1 = hd
+    do jj = 1, kv
+      do ii = 1, kv
+         hd1 = hd1 + ho(jj,ii)*k(ii,jj) + dodtn(jj,ii) * dkm1(ii,jj)
+      end do
+    end do
+    !hd1 = hd + sum(transpose(dodtn) * dkm1)
+    ! -- Compute hc1
+    !ho1 =  matmul(transpose(dFm1), matmul(dodtn, fm)) + matmul(transpose(fm), matmul(ho, fm)) + &
+    !     & matmul(transpose(fm),   matmul(dodtn, dFm1))
+    !hgam1 = matmul(transpose(dFm1), dgamdtn - matmul(dodtn, q1m)) &
+    !     & + matmul(transpose(fm), hgam - matmul(ho, q1m) - matmul(dodtn, dqm1))
+    !hc1 = hc + dot_product(q1m, 2.0_c_double*(matmul(dodtn,dqm1) - hgam) + matmul(ho,q1m)) &
+    !     & - 2.0_c_double * dot_product(dqm1,dgamdtn)
+    !hd1 = hd + sum(transpose(ho) * k) + sum(transpose(dodtn) * dkm1)
+    call hlchainrule (x0, ho1, hgam1, hc1, hd1, kr, d2L)
+    deallocate(tmpkvkr)
   end subroutine
 
 
@@ -1375,9 +1611,7 @@ contains
     enddo
   end subroutine
 
-  ! Node 18's dfqk is initialised here. So if dfqk were wrong this is wrong. But all assignments
-  ! are on the right subscript. So the value of fmlfm, qm, or fm which comes from curglob.gbk->fmlfm 
-  ! is wrong? possible... According to this function the fmlfm of node 18 should have 4 dimensions.
+  ! ONE OF THE BOTTLENECK FUNCTION!!!
   recursive subroutine dqmmkda(fmlfm_c, qm_c, fm_c, a_c, kr,kv,ku,   &
        & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, &
        & dfqk1, k)
@@ -1387,16 +1621,18 @@ contains
     integer(c_int), intent(in)  :: ku, kv, kr
     type(llstptr), pointer :: a_p
     type(llst),    pointer :: fm_p,   fmlfm_p,   qm_p
-    !!real(c_double), pointer :: a(:), fm(:,:), qm(:), fmlfm(:,:), tailsum_fmlfm(:,:)
     real(c_double), contiguous, pointer :: a(:), fm(:,:), qm(:), fmlfm(:,:), tailsum_fmlfm(:,:)
     type(c_ptr) ::  i_c,j_c,k_c,r_c
     real(c_double), intent(out), target :: k(kv,kv)
     type(c_ptr), allocatable :: stfm(:), sta(:), stfmlfm(:)
-    real(c_double) :: tmp1(kv,kv), tmp2(kv,kv)
+    real(c_double), allocatable :: tmpkvkv(:,:), tmpkvkv2(:,:)
+    real(c_double), allocatable, target :: tmpkr(:)
+    real(c_double), contiguous, pointer :: tmpkts(:) ! points to tmpkr with varying sizes
     integer(c_int) :: i,m,n
     real(c_double) :: dodvev(kv,kv,ku,ku), dodphiev(kv,kv,ku,kv), dgamdvev(kv,ku,ku), &
          & dgamdwev(kv,ku), dgamdphiev(kv,ku,kv)
     allocate(stfm(1660000), sta(1660000), stfmlfm(1660000))     ! 50 MBs. 
+    allocate(tmpkvkv(kv,kv), tmpkvkv2(kv,kv), tmpkr(kr))
     dfqk1%dfdv = 0.0_c_double;  dfqk1%dfdphi = 0.0_c_double;
     dfqk1%dqdv = 0.0_c_double;  dfqk1%dqdphi = 0.0_c_double;    dfqk1%dqdw = 0.0_c_double;
     dfqk1%dkdv = 0.0_c_double;  dfqk1%dkdphi = 0.0_c_double;
@@ -1411,15 +1647,22 @@ contains
     call c_f_pointer(j_c, qm_p);      qm(1:kv)          => qm_p%dat(1:)
     do n=1,ku
        do m=1,ku
-          dfqk1%dqdv(:,m,n)   =dfqk1%dqdv(:,m,n) + matmul(fmlfm, dgamdvev(:,m,n) - matmul(dodvev(:,:,m,n), qm))
+          tmpkvkv(:,1) = dgamdvev(:,m,n)
+          call dsymv('L',kv,-1.0_c_double,dodvev(:,:,m,n),kv,qm,1_c_int,1.0_c_double,tmpkvkv(:,1),1_c_int)
+          call dsymv('L',kv,1.0_c_double,fmlfm,kv,tmpkvkv(:,1),1_c_int,1.0_c_double,dfqk1%dqdv(:,m,n),1_c_int)
+          !dfqk1%dqdv(:,m,n)   =dfqk1%dqdv(:,m,n) + matmul(fmlfm, dgamdvev(:,m,n) - matmul(dodvev(:,:,m,n), qm))
        enddo
     enddo
     do n=1,kv
        do m=1,ku
-          dfqk1%dqdphi(:,m,n) =dfqk1%dqdphi(:,m,n) + matmul(fmlfm, dgamdphiev(:,m,n) - matmul(dodphiev(:,:,m,n), qm))
+          tmpkvkv(:,1) = dgamdphiev(:,m,n)
+          call dsymv('L',kv,-1.0_c_double,dodphiev(:,:,m,n),kv,qm,1_c_int,1.0_c_double,tmpkvkv(:,1),1_c_int)
+          call dsymv('L',kv,1.0_c_double,fmlfm,kv,tmpkvkv(:,1),1_c_int,1.0_c_double,dfqk1%dqdphi(:,m,n),1_c_int)
+          !dfqk1%dqdphi(:,m,n) =dfqk1%dqdphi(:,m,n) + matmul(fmlfm, dgamdphiev(:,m,n) - matmul(dodphiev(:,:,m,n), qm))
        enddo
     enddo
-    dfqk1%dqdw = dfqk1%dqdw + matmul(fmlfm, dgamdwev)
+    call dsymm('L','L',kv,ku,1.0_c_double,fmlfm,kv,dgamdwev,kv,1.0_c_double,dfqk1%dqdw,kv)
+    !dfqk1%dqdw = dfqk1%dqdw + matmul(fmlfm, dgamdwev)
     stfm(i)        = r_c            ! May be NULL on top of the stack
     sta(i)         = k_c            ! Never NULL
     stfmlfm(i)     = i_c            ! Never NULL
@@ -1438,12 +1681,16 @@ contains
     call c_f_pointer(stfmlfm(i), fmlfm_p);           fmlfm(1:kv,1:kv)   => fmlfm_p%dat(1:)
     do n=1,ku
        do m=1,ku
-          dfqk1%dkdv(:,:,m,n) = - matmul(fmlfm, matmul(dodvev(:,:,m,n), fmlfm))
+          call dsymm('L','L',kv,kv,1.0_c_double,dodvev(:,:,m,n),kv,fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+          call dsymm('L','L',kv,kv,-1.0_c_double,fmlfm,kv,tmpkvkv,kv,0.0_c_double,dfqk1%dkdv(:,:,m,n),kv)
+          !dfqk1%dkdv(:,:,m,n) = - matmul(fmlfm, matmul(dodvev(:,:,m,n), fmlfm))
        enddo
     enddo
     do n=1,kv
        do m=1,ku
-          dfqk1%dkdphi(:,:,m,n) = - matmul(fmlfm, matmul(dodphiev(:,:,m,n), fmlfm))
+          call dsymm('L','L',kv,kv,1.0_c_double,dodphiev(:,:,m,n),kv,fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+          call dsymm('L','L',kv,kv,-1.0_c_double,fmlfm,kv,tmpkvkv,kv,0.0_c_double,dfqk1%dkdphi(:,:,m,n),kv)
+          !dfqk1%dkdphi(:,:,m,n) = - matmul(fmlfm, matmul(dodphiev(:,:,m,n), fmlfm))
        enddo
     enddo
     tailsum_fmlfm = tailsum_fmlfm + fmlfm
@@ -1455,20 +1702,39 @@ contains
        call c_f_pointer(stfmlfm(i), fmlfm_p);           fmlfm(1:kv,1:kv)   => fmlfm_p%dat(1:)
        call c_f_pointer(sta(i), a_p);                   call c_f_pointer(a_p%dat, a, [a_p%siz])
        call c_f_pointer(stfm(i), fm_p);                 fm(1:kv,1:a_p%siz) => fm_p%dat(1:)
+       tmpkts(1:a_p%siz) => tmpkr(1:a_p%siz)
        do n=1,ku
           do m=1,ku
-             tmp1 = matmul(tailsum_fmlfm, dodvev(:,:,m,n))
-             dfqk1%dqdv(:,m,n)   = dfqk1%dqdv(:,m,n) - matmul(tmp1, matmul(fm, a))
-             tmp2 = matmul(tmp1, fmlfm)
-             dfqk1%dkdv(:,:,m,n) = dfqk1%dkdv(:,:,m,n) - tmp2 - transpose(tmp2) -matmul(fmlfm, matmul(dodvev(:,:,m,n), fmlfm))
+             call dsymm('R','L',kv,kv,1.0_c_double,dodvev(:,:,m,n),kv,tailsum_fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+             call dgemv('N',kv,a_p%siz,1.0_c_double,fm,kv,a,1_c_int,0.0_c_double,tmpkts,1_c_int)
+             call dgemv('N',kv,kv,-1.0_c_double,tmpkvkv,kv,tmpkts,1_c_int,1.0_c_double,dfqk1%dqdv(:,m,n),1_c_int)
+             call dsyr2k('L','N',kv,kv,-1.0_c_double,tmpkvkv,kv,fmlfm,kv,0.0_c_double,tmpkvkv2,kv)
+             call syflgefill(tmpkvkv2, kv)
+             dfqk1%dkdv(:,:,m,n) = dfqk1%dkdv(:,:,m,n) +tmpkvkv2
+             call dsymm('L','L',kv,kv,1.0_c_double,dodvev(:,:,m,n),kv,fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+             call dsymm('L','L',kv,kv,-1.0_c_double,fmlfm,kv,tmpkvkv,kv,1.0_c_double,dfqk1%dkdv(:,:,m,n),kv)
+             !tmpkvkv = matmul(tailsum_fmlfm, dodvev(:,:,m,n))
+             !dfqk1%dqdv(:,m,n)   = dfqk1%dqdv(:,m,n) - matmul(tmpkvkv, matmul(fm, a))
+             !tmpkvkv2 = matmul(tmpkvkv, fmlfm)
+             !dfqk1%dkdv(:,:,m,n) = dfqk1%dkdv(:,:,m,n) - tmpkvkv2 - transpose(tmpkvkv2) &
+             !                    & -matmul(fmlfm, matmul(dodvev(:,:,m,n), fmlfm))
           enddo
        enddo
        do n=1,kv
           do m=1,ku
-             tmp1 = matmul(tailsum_fmlfm, dodphiev(:,:,m,n))
-             dfqk1%dqdphi(:,m,n)   = dfqk1%dqdphi(:,m,n) - matmul(tmp1, matmul(fm, a))
-             tmp2 = matmul(tmp1, fmlfm)
-             dfqk1%dkdphi(:,:,m,n) = dfqk1%dkdphi(:,:,m,n) - tmp2 - transpose(tmp2) -matmul(fmlfm, matmul(dodphiev(:,:,m,n), fmlfm))
+             call dsymm('R','L',kv,kv,1.0_c_double,dodphiev(:,:,m,n),kv,tailsum_fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+             call dgemv('N',kv,a_p%siz,1.0_c_double,fm,kv,a,1_c_int,0.0_c_double,tmpkts,1_c_int)
+             call dgemv('N',kv,kv,-1.0_c_double,tmpkvkv,kv,tmpkts,1_c_int,1.0_c_double,dfqk1%dqdphi(:,m,n),1_c_int)
+             call dsyr2k('L','N',kv,kv,-1.0_c_double,tmpkvkv,kv,fmlfm,kv,0.0_c_double,tmpkvkv2,kv)
+             call syflgefill(tmpkvkv2, kv)
+             dfqk1%dkdphi(:,:,m,n) = dfqk1%dkdphi(:,:,m,n) +tmpkvkv2
+             call dsymm('L','L',kv,kv,1.0_c_double,dodphiev(:,:,m,n),kv,fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+             call dsymm('L','L',kv,kv,-1.0_c_double,fmlfm,kv,tmpkvkv,kv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),kv)
+             !tmpkvkv = matmul(tailsum_fmlfm, dodphiev(:,:,m,n))
+             !dfqk1%dqdphi(:,m,n)   = dfqk1%dqdphi(:,m,n) - matmul(tmpkvkv, matmul(fm, a))
+             !tmpkvkv2 = matmul(tmpkvkv, fmlfm)
+             !dfqk1%dkdphi(:,:,m,n) = dfqk1%dkdphi(:,:,m,n) - tmpkvkv2 - transpose(tmpkvkv2) &
+             !                      & -matmul(fmlfm, matmul(dodphiev(:,:,m,n), fmlfm))
           enddo
        enddo
        tailsum_fmlfm = tailsum_fmlfm + fmlfm
@@ -1480,44 +1746,73 @@ contains
     call c_f_pointer(fm_c, fm_p);  fm(1:kv,1:kr)=>fm_p%dat(1:)
     do n=1,ku
        do m=1,ku
-          dfqk1%dfdv(:,:,m,n) = - matmul(matmul(tailsum_fmlfm, dodvev(:,:,m,n)), fm)
+          call dsymm('R','L',kv,kv,1.0_c_double,dodvev(:,:,m,n),kv,tailsum_fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+          call dgemm('N','N',kv,kr,kv,-1.0_c_double,tmpkvkv,kv,fm,kv,0.0_c_double,dfqk1%dfdv(:,:,m,n),kv)
+          !dfqk1%dfdv(:,:,m,n) = - matmul(matmul(tailsum_fmlfm, dodvev(:,:,m,n)), fm)
        enddo
     enddo
     do n=1,kv
        do m=1,ku
-          dfqk1%dfdphi(:,:,m,n) = - matmul(matmul(tailsum_fmlfm, dodphiev(:,:,m,n)), fm)
+          call dsymm('R','L',kv,kv,1.0_c_double,dodphiev(:,:,m,n),kv,tailsum_fmlfm,kv,0.0_c_double,tmpkvkv,kv)
+          call dgemm('N','N',kv,kr,kv,-1.0_c_double,tmpkvkv,kv,fm,kv,0.0_c_double,dfqk1%dfdphi(:,:,m,n),kv)
+          !dfqk1%dfdphi(:,:,m,n) = - matmul(matmul(tailsum_fmlfm, dodphiev(:,:,m,n)), fm)
        enddo
     enddo
-    deallocate(stfm, sta, stfmlfm)
+    deallocate(stfm, sta, stfmlfm, tmpkvkv, tmpkvkv2, tmpkr)
   end subroutine
 
 
   ! NOTICE This doesn't even use any of fmlfm_c, fm_c and q_c: Those are used largely to move m forward, not n.
+  ! BOTTLENECK FUNCTION!
   recursive subroutine tndown (dfqk1_ch, HPhi, a, knv, knu, kmv, kmu, dfqk1new_ch) bind(C, name="tndown_")
     type(dfdqdkCMEM)  :: dfqk1_ch,       dfqk1new_ch
     type(dfdqdk)      :: dfqk1,          dfqk1new
     real(c_double) HPhi, a
     integer(c_int) knv, knu, kmv, kmu
     dimension HPhi(knu,knv), a(knu)
+    real(c_double), allocatable :: tmpknuknv(:,:)
     call read_dfqk(dfqk1_ch, dfqk1)
     call read_dfqk(dfqk1new_ch, dfqk1new)
+    allocate(tmpknuknv(knu,knv))
     do n=1,kmu
        do m=1,kmu
-          dfqk1new%dfdv(:,:,m,n) = matmul(HPhi, dfqk1%dfdv(:,:,m,n))
-          dfqk1new%dqdv(:,m,n)   = matmul(HPhi, dfqk1%dqdv(:,m,n))
-          dfqk1new%dkdv(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdv(:,:,m,n)), transpose(HPhi))
+          !! dfqk1%dfdv has knv by dfqk1_ch%kr dimension
+          call dgemm('N','N',knu,dfqk1_ch%kr,knv,1.0_c_double,HPhi,knu,dfqk1%dfdv(:,:,m,n),&
+                   & knv,0.0_c_double,dfqk1new%dfdv(:,:,m,n),knu)
+          call dsymm('R','L',knu,knv,1.0_c_double,dfqk1%dkdv(:,:,m,n),knv,HPhi,knu,0.0_c_double,tmpknuknv,knu)
+          !call dgemm('N','N',knu,knv,knv,1.0_c_double,HPhi,knu,dfqk1%dkdv(:,:,m,n),knv,0.0_c_double,tmpknuknv,knu)
+          call dgemm('N','T',knu,knu,knv,1.0_c_double,tmpknuknv,knu,HPhi,knu,0.0_c_double,dfqk1new%dkdv(:,:,m,n),knu)
+          !dfqk1new%dfdv(:,:,m,n) = matmul(HPhi, dfqk1%dfdv(:,:,m,n))
+          !dfqk1new%dqdv(:,m,n)   = matmul(HPhi, dfqk1%dqdv(:,m,n))
+          !dfqk1new%dkdv(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdv(:,:,m,n)), transpose(HPhi))
        enddo
+       call dgemm('N','N',knu,kmu,knv,1.0_c_double,HPhi,knu,dfqk1%dqdv(:,:,n),knv,0.0_c_double,&
+                & dfqk1new%dqdv(:,:,n),knu)       ! Batched from dqdphi vector mult.
     enddo
     do n=1,kmv
        do m=1,kmu
-          dfqk1new%dfdphi(:,:,m,n) = matmul(HPhi, dfqk1%dfdphi(:,:,m,n))
-          dfqk1new%dqdphi(:,m,n)   = matmul(HPhi, dfqk1%dqdphi(:,m,n))
-          dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi))
+          call dgemm('N','N',knu,dfqk1_ch%kr,knv,1.0_c_double,HPhi,knu,dfqk1%dfdphi(:,:,m,n),&
+                   & knv,0.0_c_double,dfqk1new%dfdphi(:,:,m,n),knu)
+          call dsymm('R','L',knu,knv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),knv,HPhi,knu,0.0_c_double,tmpknuknv,knu)
+          !call dgemm('N','N',knu,knv,knv,1.0_c_double,HPhi,knu,dfqk1%dkdphi(:,:,m,n),knv,0.0_c_double,tmpknuknv,knu)
+          call dgemm('N','T',knu,knu,knv,1.0_c_double,tmpknuknv,knu,HPhi,knu,0.0_c_double,dfqk1new%dkdphi(:,:,m,n),knu)
+          !dfqk1new%dfdphi(:,:,m,n) = matmul(HPhi, dfqk1%dfdphi(:,:,m,n))
+          !dfqk1new%dqdphi(:,m,n)   = matmul(HPhi, dfqk1%dqdphi(:,m,n))
+          !dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi))
        enddo
+       call dgemm('N','N',knu,kmu,knv,1.0_c_double,HPhi,knu,dfqk1%dqdphi(:,:,n),knv,0.0_c_double,&
+                & dfqk1new%dqdphi(:,:,n),knu)     ! Batched from dqdphi vector mult.
     enddo
-    dfqk1new%dqdw = matmul(HPhi, dfqk1%dqdw)
-    dfqk1new%f1n  = matmul(HPhi, dfqk1%f1n)
-    dfqk1new%q1n  = matmul(HPhi, dfqk1%q1n) + a
+    call dgemm('N','N',knu,kmu,knv,1.0_c_double,HPhi,knu,dfqk1%dqdw,knv,0.0_c_double,dfqk1new%dqdw,knu)
+    call dgemm('N','N',knu,dfqk1_ch%kr,knv,1.0_c_double,HPhi,knu,dfqk1%f1n,knv,&
+             & 0.0_c_double,dfqk1new%f1n,knu)
+    dfqk1new%q1n(:) = a(:)
+    call dgemv('N',knu,knv,1.0_c_double,HPhi,knu,dfqk1%q1n,1_c_int,1.0_c_double,dfqk1new%q1n,1_c_int)
+    !call dgemm('N','N',knu,knu,knv,1.0_c_double,HPhi,knu,dfqk1%q1n,knv,1.0_c_double,dfqk1new%q1n,knu)
+    !dfqk1new%dqdw = matmul(HPhi, dfqk1%dqdw)
+    !dfqk1new%f1n  = matmul(HPhi, dfqk1%f1n)
+    !dfqk1new%q1n  = matmul(HPhi, dfqk1%q1n) + a
+    deallocate(tmpknuknv)
   end subroutine
 
   recursive subroutine dfqk_mmp1 (dfqk1_ch,H,HPhi,w,a,Lamb,solV,solVLsOPhi,ku,kr) bind(C, name="dfqk_mmp1_")
@@ -1526,20 +1821,28 @@ contains
     real(c_double)    :: HPhi(ku,kr), H(ku,ku), w(ku), a(ku), Lamb(ku,ku), solV(ku,ku), solVLsOPhi(ku,kr)
     type(dfdqdkCMEM) :: dfqk1_ch
     type(dfdqdk)      :: dfqk1
-    real(c_double)    :: LsolV(ku,ku), solVaw(ku)
-    integer(c_int)    :: m, n
+    integer(c_int)    :: m, n, i
+    real(c_double), allocatable :: tmpku1(:), LsolV(:,:), solVaw(:)
+    allocate(tmpku1(ku), LsolV(ku,ku), solVaw(ku))
     call read_dfqk(dfqk1_ch, dfqk1)
+    dfqk1%dfdv   = 0.0_c_double
+    dfqk1%dkdv   = 0.0_c_double
     dfqk1%dfdphi = 0.0_c_double
     dfqk1%dqdphi = 0.0_c_double
     dfqk1%dkdphi = 0.0_c_double
     dfqk1%f1n    = 0.0_c_double
     dfqk1%q1n    = 0.0_c_double
-    LsolV = matmul(Lamb, solV)
-    solVaw = matmul(solV, a - w)
+
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,Lamb,ku,solV,ku,0.0_c_double,LsolV,ku)
+    tmpku1 = a - w
+    call dgemv('N',ku,ku,1.0_c_double,solV,ku,tmpku1,1_c_int,0.0_c_double,solVaw,1_c_int)
+    !LsolV = matmul(Lamb, solV)
+    !solVaw = matmul(solV, a - w)
     !! dv
     do n=1,ku
        do m=1,ku
-          dfqk1%dfdv(:,:,m,n) = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
+          call dger(ku,kr,-1.0_c_double,LsolV(:,m),1_c_int,solVLsOPhi(n,1),ku,dfqk1%dfdv(:,:,m,n),ku)
+          !dfqk1%dfdv(:,:,m,n) = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
        enddo
     enddo
     do n=1,ku
@@ -1549,19 +1852,23 @@ contains
     enddo
     do n=1,ku
        do m=1,ku
-          dfqk1%dkdv(:,:,m,n) = matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
+          call dger(ku,ku,1.0_c_double,LsolV(:,m),1_c_int,LsolV(:,n),1_c_int,dfqk1%dkdv(:,:,m,n),ku)
+          !dfqk1%dkdv(:,:,m,n) = matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
        enddo
     enddo
     !! dphi
     do n=1,kr
        do m=1,ku
-          dfqk1%dfdphi(:,n:n,m,n) = H(:,m:m)
+          do i=1,ku
+             dfqk1%dfdphi(i,n,m,n) = H(i,m)
+          end do
        enddo
     enddo
     !! dkdw
     dfqk1%dqdw = H
     dfqk1%f1n  = HPhi
     dfqk1%q1n  = a
+    deallocate(tmpku1, LsolV, solVaw)
   end subroutine
 
   recursive subroutine tndown1st (dfqk1_ch,K,H,HPhi,w,a,f1m,q1m,Lamb,solV,solVLsOPhi,kr,kv,ku,dfqk1new_ch) &
@@ -1570,43 +1877,91 @@ contains
     type(dfdqdk)      :: dfqk1,          dfqk1new
     real(c_double) K,H,HPhi,w,a,f1m,q1m,Lamb,solV,solVLsOPhi
     integer(c_int) kr,kv,ku
-    dimension H(ku,ku), K(kv,kv), HPhi(ku,kv), f1m(kv,kr), Lamb(ku,ku), solV(ku,ku), solVLsOPhi(ku,kv), LsolV(ku,ku), &
-         & q1m(kv),dfmmp1(ku,kv),w(ku),a(ku), solVaw(ku), extrakterm(ku,ku)
+    dimension H(ku,ku), K(kv,kv), HPhi(ku,kv), f1m(kv,kr), Lamb(ku,ku), solV(ku,ku), solVLsOPhi(ku,kv), &
+         & q1m(kv),w(ku),a(ku)
+    real(c_double), allocatable :: dfmmp1(:,:), extrakterm(:,:), solVaw(:), LsolV(:,:), tmpkvku(:,:)
+    allocate(dfmmp1(ku,kv), extrakterm(ku,ku), solVaw(ku), LsolV(ku,ku), tmpkvku(kv,ku))
     ! In dfqk1, f1n and q1n is intentionally undefined.
     call read_dfqk(dfqk1new_ch, dfqk1new)
     call read_dfqk(dfqk1_ch, dfqk1)
-    LsolV = matmul(Lamb, solV)
-    solVaw = matmul(solV, a - w)
+
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,Lamb,ku,solV,ku,0.0_c_double,LsolV,ku)
+    dfmmp1(:,1) = a-w
+    call dgemv('N',ku,ku,1.0_c_double,solV,ku,dfmmp1(:,1),1_c_int,0.0_c_double,solVaw,1_c_int)
+!   LsolV = matmul(Lamb, solV)
+!   solVaw = matmul(solV, a - w)
     
     ! Optimisation oppotunity: + matmul(LsolV(:,m), transpose(LsolV(:,n))) have symmetry.
     do n=1,ku
        do m=1,ku
-          dfmmp1 = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
+          dfmmp1 = 0.0_c_double
+          call dger(ku, kv, -1.0_c_double, LsolV(1,m), 1_c_int, solVLsOPhi(n,1), ku, dfmmp1, ku)
+          
           !! K1m = sum_1^{m-1} {F{i+1}m Li F{i+1}m}
           !! K1n = sum_1^m {F{i+1}{m+1} Li F{i+1}{m+1}}
           !! So  K1n = sum_1^{m-1} {F{i+1}{m+1} Li F{i+1}{m+1}} + Lm
           !! So  K1n = HPhi_m K1m HPhi_m + Lm
           !! So  d{K1n} = d{HPhi_m} K1m (HPhi_m)^T + HPhi_m d{K1m} (HPhi_m)^T + HPhi_m K1m d{HPhi_m} + d{Lm}
-          extrakterm = matmul(HPhi, matmul(K, transpose(dfmmp1)))
-          dfqk1new%dkdv(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdv(:,:,m,n)), transpose(HPhi)) &
-               & + extrakterm + transpose(extrakterm) + matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
-          dfqk1new%dfdv(:,:,m,n) = matmul(HPhi, dfqk1%dfdv(:,:,m,n)) + matmul(dfmmp1,f1m)
-          dfqk1new%dqdv(:,m,n)   = matmul(HPhi, dfqk1%dqdv(:,m,n))   + matmul(dfmmp1,q1m) + solVaw(n)*LsolV(:,m)
+
+          call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdv(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdv(:,:,m,n),ku)
+          call dgemm('N','T',kv,ku,kv,1.0_c_double,K,kv,dfmmp1,ku,0.0_c_double,tmpkvku,kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
+          do jj = 1,ku
+             do ii = 1,ku
+                dfqk1new%dkdv(ii,jj,m,n) = dfqk1new%dkdv(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
+             end do
+          end do
+          call dger(ku,ku,1.0_c_double, LsolV(:,m),1_c_int,LsolV(:,n),1_c_int,dfqk1new%dkdv(:,:,m,n),ku)
+
+          call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdv(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
+          call dgemm('N','N',ku,kr,kv,1.0_c_double,dfmmp1,ku,f1m,kv,1.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
+
+          dfqk1new%dqdv(:,m,n) = solVaw(n)*LsolV(:,m)
+          call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdv(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
+          call dgemv('N',ku,kv,1.0_c_double,dfmmp1,ku,q1m,1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
+
+!           dfmmp1 = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
+!          extrakterm = matmul(HPhi, matmul(K, transpose(dfmmp1)))
+!          dfqk1new%dkdv(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdv(:,:,m,n)), transpose(HPhi)) &
+!               & + extrakterm + transpose(extrakterm) + matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
+!          dfqk1new%dfdv(:,:,m,n) = matmul(HPhi, dfqk1%dfdv(:,:,m,n)) + matmul(dfmmp1,f1m)
+!          dfqk1new%dqdv(:,m,n)   = matmul(HPhi, dfqk1%dqdv(:,m,n))   + matmul(dfmmp1,q1m) + solVaw(n)*LsolV(:,m)
        enddo
     enddo
 
     do n=1,kv
        do m=1,ku
-          extrakterm = matmul(HPhi, matmul(K(:,n:n), transpose(H(:,m:m))))
-          dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi)) &
-               & + extrakterm + transpose(extrakterm)
-          dfqk1new%dfdphi(:,:,m,n) = matmul(HPhi, dfqk1%dfdphi(:,:,m,n)) + matmul(H(:,m:m), f1m(n:n,:))
-          dfqk1new%dqdphi(:,m,n)   = matmul(HPhi, dfqk1%dqdphi(:,m,n))   + q1m(n) * H(:,m)
+          call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdphi(:,:,m,n),ku)
+          tmpkvku = 0.0_c_double
+          call dger(kv, ku, 1.0_c_double, K(1,n), 1_c_int, H(1,m), 1_c_int, tmpkvku, kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
+          do jj = 1,ku
+             do ii = 1,ku
+                dfqk1new%dkdphi(ii,jj,m,n) = dfqk1new%dkdphi(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
+             end do
+          end do
+          call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdphi(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdphi(:,:,m,n),ku)
+          call dger(ku,kr,1.0_c_double,H(1,m),1_c_int,f1m(n,1),kv,dfqk1new%dfdphi(:,:,m,n),ku)
+          dfqk1new%dqdphi(:,m,n) = q1m(n) * H(:,m)
+          call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdphi(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdphi(:,m,n),1_c_int)
+!         extrakterm = matmul(HPhi, matmul(K(:,n:n), transpose(H(:,m:m))))
+!         dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi)) &
+!              & + extrakterm + transpose(extrakterm)
+!         dfqk1new%dfdphi(:,:,m,n) = matmul(HPhi, dfqk1%dfdphi(:,:,m,n)) + matmul(H(:,m:m), f1m(n:n,:))
+!        dfqk1new%dqdphi(:,m,n)   = matmul(HPhi, dfqk1%dqdphi(:,m,n))   + q1m(n) * H(:,m)
        enddo
     enddo
-    dfqk1new%dqdw = matmul(HPhi, dfqk1%dqdw) + H
-    dfqk1new%f1n = matmul(HPhi, f1m)
-    dfqk1new%q1n = matmul(HPhi, q1m) + a
+    dfqk1new%dqdw = H
+    call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdw,kv,1.0_c_double,dfqk1new%dqdw,ku)
+    call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,f1m,kv,0.0_c_double,dfqk1new%f1n,ku)
+    dfqk1new%q1n = a
+    call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,q1m,1_c_int,1.0_c_double,dfqk1new%q1n,1_c_int)
+    !dfqk1new%dqdw = matmul(HPhi, dfqk1%dqdw) + H
+    !dfqk1new%f1n = matmul(HPhi, f1m)
+    !dfqk1new%q1n = matmul(HPhi, q1m) + a
+    deallocate(dfmmp1, extrakterm, solVaw, LsolV, tmpkvku)
   end subroutine
 
   recursive subroutine initfqk4b(dfqk1_ch, fmg_c, qmg_c, falfm_c, f1a, q1a, a_c, nk, kr, kav, kmv, kmu, &
@@ -1618,13 +1973,13 @@ contains
          & dgamdwev(kmv,kmu), dgamdphiev(kmv,kmu,kmv), f1a(kav,kr), q1a(kav)
     type(c_ptr) ::  i_c,j_c,r_c,k_c
     type(dfdqdkCMEM), intent(inout) :: dfqk1_ch
-    integer(c_int)    :: i,m,n
+    integer(c_int)    :: i,m,n, nn,mm
     type(dfdqdk)      :: dfqk1
     type(c_ptr), allocatable :: stfmg(:), sta(:), stfalfm(:), stfalfm_nxt(:)
+    real(c_double), allocatable :: tmpkmv1(:), tmpkmvkav(:,:), tmpkavkmv(:,:), tmpkavkav(:,:), &
+        & tailsum_falfm(:,:)
     type(llst), pointer :: fmg_p, qmg_p, falfm_p
     type(llstptr), pointer :: a_p
-    real(c_double) :: tmp1(kav,kmv), tmp2(kav,kav)
-    real(c_double) :: tailsum_falfm(kav,kmv)
     real(c_double), contiguous, pointer :: a(:), fmg(:,:), qmg(:), falfm(:,:)
 
     allocate(stfmg(1660000), sta(1660000), stfalfm(1660000), stfalfm_nxt(1660000))     ! 50 MBs. 
@@ -1634,6 +1989,7 @@ contains
     dfqk1%knv = kmu          !NOT USED
     dfqk1%kmu = kmu
     dfqk1%kmv = kmv
+    allocate(tmpkmv1(kmv), tmpkmvkav(kmv,kav), tailsum_falfm(kav,kmv), tmpkavkmv(kav,kmv), tmpkavkav(kav,kav))
 
     dfqk1%dfdv = 0.0_c_double;  dfqk1%dfdphi = 0.0_c_double;
     dfqk1%dqdv = 0.0_c_double;  dfqk1%dqdphi = 0.0_c_double;    dfqk1%dqdw = 0.0_c_double;
@@ -1655,12 +2011,19 @@ contains
 
     do n=1,kmu
        do m=1,kmu
-          dfqk1%dqdv(:,m,n)    = dfqk1%dqdv(:,m,n) + matmul(falfm, dgamdvev(:,m,n) - matmul(dodvev(:,:,m,n), qmg))
+          ! Here you need a kmv x 1 to store the vector. Then a dgemm call.
+          tmpkmv1 = dgamdvev(:,m,n)
+          call dgemv('N',kmv,kmv,-1.0_c_double,dodvev(:,:,m,n),kmv,qmg,1_c_int,1.0_c_double,tmpkmv1,1_c_int)
+          call dgemv('N',kav,kmv,1.0_c_double,falfm,kav,tmpkmv1,1_c_int,1.0_c_double,dfqk1%dqdv(:,m,n),1_c_int)
+          !dfqk1%dqdv(:,m,n)    = dfqk1%dqdv(:,m,n) + matmul(falfm, dgamdvev(:,m,n) - matmul(dodvev(:,:,m,n), qmg))
        enddo
     enddo
     do n=1,kmv
        do m=1,kmu
-          dfqk1%dqdphi(:,m,n)  = dfqk1%dqdphi(:,m,n) + matmul(falfm, dgamdphiev(:,m,n) - matmul(dodphiev(:,:,m,n), qmg))
+          tmpkmv1 = dgamdphiev(:,m,n)
+          call dgemv('N',kmv,kmv,-1.0_c_double,dodphiev(:,:,m,n),kmv,qmg,1_c_int,1.0_c_double,tmpkmv1,1_c_int)
+          call dgemv('N',kav,kmv,1.0_c_double,falfm,kav,tmpkmv1,1_c_int,1.0_c_double,dfqk1%dqdphi(:,m,n),1_c_int)
+          !dfqk1%dqdphi(:,m,n)  = dfqk1%dqdphi(:,m,n) + matmul(falfm, dgamdphiev(:,m,n) - matmul(dodphiev(:,:,m,n), qmg))
        enddo
     enddo
     stfalfm(i)  = i_c
@@ -1687,43 +2050,71 @@ contains
     tailsum_falfm = falfm
     do n=1,kmu
        do m=1,kmu
-          dfqk1%dkdv(:,:,m,n) = - matmul(falfm, matmul(dodvev(:,:,m,n), transpose(falfm)))
+          call dgemm('N','T',kmv,kav,kmv,1.0_c_double,dodvev(:,:,m,n),kmv,falfm,kav,0.0_c_double,tmpkmvkav,kmv)
+          call dgemm('N','N',kav,kav,kmv,-1.0_c_double,falfm,kav,tmpkmvkav,kmv,0.0_c_double,dfqk1%dkdv(:,:,m,n),kav)
+          !dfqk1%dkdv(:,:,m,n) = - matmul(falfm, matmul(dodvev(:,:,m,n), transpose(falfm)))
        enddo
     enddo
     do n=1,kmv
        do m=1,kmu
-          dfqk1%dkdphi(:,:,m,n) = - matmul(falfm, matmul(dodphiev(:,:,m,n), transpose(falfm)))
+          call dgemm('N','T',kmv,kav,kmv,1.0_c_double,dodphiev(:,:,m,n),kmv,falfm,kav,0.0_c_double,tmpkmvkav,kmv)
+          call dgemm('N','N',kav,kav,kmv,-1.0_c_double,falfm,kav,tmpkmvkav,kmv,0.0_c_double,dfqk1%dkdphi(:,:,m,n),kav)
+          !dfqk1%dkdphi(:,:,m,n) = - matmul(falfm, matmul(dodphiev(:,:,m,n), transpose(falfm)))
        enddo
     enddo
 
-    dfqk1%dqdw = dfqk1%dqdw + matmul(falfm, dgamdwev)
+    
+    call dgemm('N','N',kav,kmu,kmv,1.0_c_double,falfm,kav,dgamdwev,kmv,1.0_c_double,dfqk1%dqdw,kav)
+    !dfqk1%dqdw = dfqk1%dqdw + matmul(falfm, dgamdwev)
 200 i = i - 1
     !! If beta - 1 is too small then nothing should be summed.
     if (i > 0) then
        call c_f_pointer(stfalfm(i), falfm_p);   falfm(1:kav,1:kmv) => falfm_p%dat(1:)
        call c_f_pointer(sta(i), a_p);           call c_f_pointer(a_p%dat, a, [a_p%siz])
        call c_f_pointer(stfmg(i), fmg_p);       fmg(1:kmv,1:a_p%siz) => fmg_p%dat(1:)
+       call dgemv('N',kmv,a_p%siz,1.0_c_double,fmg,kmv,a,1_c_int,0.0_c_double,tmpkmv1,1_c_int)
        do n=1,kmu
           do m=1,kmu
-             tmp1 = matmul(tailsum_falfm, dodvev(:,:,m,n))
-             dfqk1%dqdv(:,m,n)   = dfqk1%dqdv(:,m,n) - matmul(tmp1, matmul(fmg, a))
-             tmp2 = matmul(tmp1, transpose(falfm))
-             dfqk1%dkdv(:,:,m,n) = dfqk1%dkdv(:,:,m,n) - tmp2 &
-                  & - transpose(tmp2) &
-                  & - matmul(falfm, matmul(dodvev(:,:,m,n), transpose(falfm)))
+             call dgemm('N','N',kav,kmv,kmv,1.0_c_double,tailsum_falfm,kav,dodvev(:,:,m,n),kmv,0.0_c_double,tmpkavkmv,kav)
+             call dgemv('N',kav,kmv,-1.0_c_double,tmpkavkmv,kav,tmpkmv1,1_c_int,1.0_c_double,dfqk1%dqdv(:,m,n),1_c_int)
+             call dgemm('N','T',kav,kav,kmv,1.0_c_double,tmpkavkmv,kav,falfm,kav,0.0_c_double,tmpkavkav,kav)
+             do nn = 1,kav
+                do mm = 1,kav
+                   dfqk1%dkdv(nn,mm,m,n) = dfqk1%dkdv(nn,mm,m,n) - tmpkavkav(nn,mm) - tmpkavkav(mm,nn)
+                end do
+             end do
+             call dgemm('N','T',kmv,kav,kmv,1.0_c_double,dodvev(:,:,m,n),kmv,falfm,kav,0.0_c_double,tmpkmvkav,kmv)
+             call dgemm('N','N',kav,kav,kmv,-1.0_c_double,falfm,kav,tmpkmvkav,kmv,1.0_c_double,dfqk1%dkdv(:,:,m,n),kav)
+             !tmp1 = matmul(tailsum_falfm, dodvev(:,:,m,n))
+             !dfqk1%dqdv(:,m,n)   = dfqk1%dqdv(:,m,n) - matmul(tmp1, matmul(fmg, a))
+             !tmp2 = matmul(tmp1, transpose(falfm))
+             !dfqk1%dkdv(:,:,m,n) = dfqk1%dkdv(:,:,m,n) - tmp2 &
+             !     & - transpose(tmp2) &
+             !     & - matmul(falfm, matmul(dodvev(:,:,m,n), transpose(falfm)))
           enddo
        enddo
        do n=1,kmv
           do m=1,kmu
-             tmp1 = matmul(tailsum_falfm, dodphiev(:,:,m,n))
-             dfqk1%dqdphi(:,m,n)   = dfqk1%dqdphi(:,m,n) - matmul(tmp1, matmul(fmg, a))
-             tmp2 = matmul(tmp1, transpose(falfm))
-             dfqk1%dkdphi(:,:,m,n) = dfqk1%dkdphi(:,:,m,n) - tmp2 - transpose(tmp2) &
-                  & -matmul(falfm, matmul(dodphiev(:,:,m,n), transpose(falfm)))
+             call dgemm('N','N',kav,kmv,kmv,1.0_c_double,tailsum_falfm,kav,dodphiev(:,:,m,n),kmv,0.0_c_double,tmpkavkmv,kav)
+             call dgemv('N',kav,kmv,-1.0_c_double,tmpkavkmv,kav,tmpkmv1,1_c_int,1.0_c_double,dfqk1%dqdphi(:,m,n),1_c_int)
+             call dgemm('N','T',kav,kav,kmv,1.0_c_double,tmpkavkmv,kav,falfm,kav,0.0_c_double,tmpkavkav,kav)
+             do nn = 1,kav
+                do mm = 1,kav
+                   dfqk1%dkdphi(nn,mm,m,n) = dfqk1%dkdphi(nn,mm,m,n) - tmpkavkav(mm,nn) - tmpkavkav(nn,mm)
+                end do
+             end do
+             call dgemm('N','T',kmv,kav,kmv,1.0_c_double,dodphiev(:,:,m,n),kmv,falfm,kav,0.0_c_double,tmpkmvkav,kmv)
+             call dgemm('N','N',kav,kav,kmv,-1.0_c_double,falfm,kav,tmpkmvkav,kmv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),kav)
+             !tmp1 = matmul(tailsum_falfm, dodphiev(:,:,m,n))
+             !dfqk1%dqdphi(:,m,n)   = dfqk1%dqdphi(:,m,n) - matmul(tmp1, matmul(fmg, a))
+             !tmp2 = matmul(tmp1, transpose(falfm))
+             !dfqk1%dkdphi(:,:,m,n) = dfqk1%dkdphi(:,:,m,n) - tmp2 - transpose(tmp2) &
+             !     & -matmul(falfm, matmul(dodphiev(:,:,m,n), transpose(falfm)))
           enddo
        enddo
        tailsum_falfm = tailsum_falfm + falfm
-       dfqk1%dqdw = dfqk1%dqdw + matmul(falfm, dgamdwev)       
+       call dgemm('N','N',kav,kmu,kmv,1.0_c_double,falfm,kav,dgamdwev,kmv,1.0_c_double,dfqk1%dqdw,kav)
+       !dfqk1%dqdw = dfqk1%dqdw + matmul(falfm, dgamdwev)       
        goto 200
     endif
     !------- END LOOP 200
@@ -1732,17 +2123,21 @@ contains
     call c_f_pointer(fmg_c, fmg_p);      fmg(1:kmv,1:kr) => fmg_p%dat(1:)
     do n=1,kmu
        do m=1,kmu
-          dfqk1%dfdv(:,:,m,n) = - matmul(matmul(tailsum_falfm, dodvev(:,:,m,n)), fmg)
+          call dgemm('N','N',kav,kmv,kmv,1.0_c_double,tailsum_falfm,kav,dodvev(:,:,m,n),kmv,0.0_c_double,tmpkavkmv,kav)
+          call dgemm('N','N',kav,kr,kmv,-1.0_c_double,tmpkavkmv,kav,fmg,kmv,0.0_c_double,dfqk1%dfdv(:,:,m,n),kav)
+          !dfqk1%dfdv(:,:,m,n) = - matmul(matmul(tailsum_falfm, dodvev(:,:,m,n)), fmg)
        enddo
     enddo
     do n=1,kmv
        do m=1,kmu
-          dfqk1%dfdphi(:,:,m,n) = - matmul(matmul(tailsum_falfm, dodphiev(:,:,m,n)), fmg)
+          call dgemm('N','N',kav,kmv,kmv,1.0_c_double,tailsum_falfm,kav,dodphiev(:,:,m,n),kmv,0.0_c_double,tmpkavkmv,kav)
+          call dgemm('N','N',kav,kr,kmv,-1.0_c_double,tmpkavkmv,kav,fmg,kmv,0.0_c_double,dfqk1%dfdphi(:,:,m,n),kav)
+          !dfqk1%dfdphi(:,:,m,n) = - matmul(matmul(tailsum_falfm, dodphiev(:,:,m,n)), fmg)
        enddo
     enddo
-    deallocate(stfmg, sta, stfalfm)
     dfqk1%f1n = f1a
     dfqk1%q1n = q1a
+    deallocate(stfmg, sta, stfalfm, tmpkmv1, tmpkmvkav, tailsum_falfm, tmpkavkmv, tmpkavkav)
   end subroutine
 
   recursive subroutine betadown(falfm_c, falfm_new, fmg_c, f1a, q1a, HPhi, a, nk, mdim, kr, kbu, kbv, kmv) bind(C, name="betadown_")
@@ -1757,15 +2152,18 @@ contains
     integer(c_int) :: j
     type(c_ptr) :: i_c
     type(llst), pointer :: tmp_p, fmg_p
-    !!real(c_double), pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
     real(c_double), contiguous, pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
+    real(c_double), allocatable :: tmpkbukr(:,:), tmpkbukmv(:,:)
+    allocate(tmpkbukr(kbu,kr), tmpkbukmv(kbu,kmv))
 
     ! Everything in falfm needs to be multiplied by HPhi
     i_c = falfm_c
 10  call c_f_pointer(i_c, tmp_p)
     dcur(1:kbv,1:kmv) => tmp_p%dat
     dnew(1:kbu,1:kmv) => tmp_p%dat
-    dnew = matmul(HPhi, dcur)
+    call dgemm('N','N',kbu,kmv,kbv,1.0_c_double,HPhi,kbu,dcur,kbv,0.0_c_double,tmpkbukmv,kbu)
+    dnew = tmpkbukmv
+    !dnew = matmul(HPhi, dcur)
     tmp_p%siz = kbu
     if (c_associated(tmp_p%nxt)) then
        i_c = tmp_p%nxt
@@ -1791,40 +2189,55 @@ contains
     if (c_associated(i_c)) then
        call c_f_pointer(i_c, fmg_p)
        fmg(1:kmv,1:kbu) => fmg_p%dat
-       dnew = matmul(dcur, transpose(fmg))
+       call dgemm('N','T',kbu,kmv,kbu,1.0_c_double,dcur,kbu,fmg,kmv,0.0_c_double,tmpkbukmv,kbu)
+       dnew = tmpkbukmv
+       !dnew = matmul(dcur, transpose(fmg))
        tmp_p%siz = kbu
     else
        tmp_p%siz = kbu          ! Now kbu = kmv because beta = parent(m).
     endif
     
-    dcur(1:kbv,1:kr) => f1a(1:);  dnew(1:kbu,1:kr) => f1a(1:);    dnew = matmul(HPhi, dcur)
-    dcur(1:kbv,1:1)  => q1a(1:);  dnew(1:kbu,1:1)  => q1a(1:);    dnew(:,1) = matmul(HPhi, dcur(:,1)) + a
+    dcur(1:kbv,1:kr) => f1a(1:);  dnew(1:kbu,1:kr) => f1a(1:)!;    dnew = matmul(HPhi, dcur)
+    call dgemm('N','N',kbu,kr,kbv,1.0_c_double,HPhi,kbu,dcur,kbv,0.0_c_double,tmpkbukr,kbu)
+    dnew = tmpkbukr
+    dcur(1:kbv,1:1)  => q1a(1:);  dnew(1:kbu,1:1)  => q1a(1:)!;    dnew(:,1) = matmul(HPhi, dcur(:,1)) + a
+    tmpkbukr(:,1) = a
+    call dgemv('N',kbu,kbv,1.0_c_double,HPhi,kbu,dcur(:,1),1_c_int,1.0_c_double,tmpkbukr(:,1),1_c_int)
+    dnew(:,1) = tmpkbukr(:,1)
+    deallocate(tmpkbukr, tmpkbukmv)
   end subroutine
 
 
   recursive subroutine d2Lijmntmtn(dF1, dq1, dk1, f1n, q1n, dodtn, dgamdtn, kr, knv, x0, d2L)
     ! tip-ness is encoded in d*dtn so no dummy argument for istip here
-    implicit none
     integer(c_int)    :: kr, knv
     real(c_double)    :: dF1(knv,kr), dq1(knv), dk1(knv,knv), f1n(knv,kr), q1n(knv), &
-                       & dodtn(knv,knv), dgamdtn(knv), x0(kr), d2L, ho1(kr,kr), hgam1(kr), hc1, hd1
-    real(c_double)    :: wsp1(knv,kr)
-    external dgemm, dgemv
+                       & dodtn(knv,knv), dgamdtn(knv), x0(kr), d2L, hc1, hd1
+    real(c_double), allocatable    :: wsp1(:,:), ho1(:,:), hgam1(:)
+    external dgemm, dgemv, ddot
+    allocate(wsp1(knv,kr), ho1(kr,kr), hgam1(kr))
     call dgemm('N','N', knv,kr,knv,1.0_c_double,dodtn,knv,f1n,knv,0.0_c_double,wsp1,knv)
     call dgemm('T','N', kr,kr,knv,1.0_c_double,dF1,knv,wsp1,knv,0.0_c_double,ho1,kr)
     call dgemm('N','N', knv,kr,knv,1.0_c_double,dodtn,knv,dF1,knv,0.0_c_double,wsp1,knv)
     call dgemm('T','N', kr,kr,knv,1.0_c_double,f1n,knv,wsp1,knv,1.0_c_double,ho1,kr)
     wsp1(:,1) = dgamdtn
     call dgemv('N',knv,knv,-1.0_c_double,dodtn,knv,q1n,1,1.0_c_double,wsp1(:,1),1)
-    hc1 = -2.0_c_double * dot_product(dq1,wsp1(:,1))
+    hc1 = -2.0_c_double * ddot(knv, dq1,1_c_int, wsp1(:,1),1_c_int)
     call dgemv('T',knv,kr,1.0_c_double,dF1,knv,wsp1(:,1),1,0.0_c_double,hgam1,1)
     call dgemv('N',knv,knv,1.0_c_double,dodtn,knv,dq1,1,0.0_c_double,wsp1(:,1),1)
     call dgemv('T',knv,kr,-1.0_c_double,f1n,knv,wsp1(:,1),1,1.0_c_double,hgam1,1)
     ! ho1   = matmul(transpose(dF1), matmul(dodtn, f1n)) + matmul(transpose(f1n), matmul(dodtn, dF1))
     ! hgam1 = matmul(transpose(dF1), dgamdtn - matmul(dodtn, q1n)) - matmul(transpose(f1n), matmul(dodtn, dq1))
     ! hc1   = 2.0_c_double * dot_product(dq1, matmul(dodtn, q1n) - dgamdtn)
-    hd1   = sum(transpose(dodtn)*dk1)
+    hd1 = 0.0_c_double
+    do jj = 1,knv
+       do ii = 1,knv
+          hd1 = hd1 + dodtn(jj,ii)*dk1(ii,jj)
+       end do
+    end do
+    !hd1   = sum(transpose(dodtn)*dk1)
     call hlchainrule (x0, ho1, hgam1, hc1, hd1, kr, d2L)
+    deallocate(wsp1, ho1, hgam1)
   end subroutine
   
   recursive subroutine tntmdir(kr,knv,knu,kmv,kmu,dfqk1_ch, &
@@ -1837,12 +2250,14 @@ contains
     real(c_double)    :: &
                        & dodvev(knv,knv,knu,knu), dodphiev(knv,knv,knu,knv), &
                        & dgamdvev(knv,knu,knu), dgamdwev(knv,knu), dgamdphiev(knv,knu,knv), &
-                       & x0(kr), bilinmat(ndir,ndir), dir(derivlen,ndir), dlijmn,dljimn,dljinm,dlijnm, hessv, &
-                       & zeroknvkr(knv,kr),zeroknvknv(knv,knv)
+                       & x0(kr), bilinmat(ndir,ndir), dir(derivlen,ndir), dlijmn,dljimn,dljinm,dlijnm, hessv
+    real(c_double), allocatable   :: zeroknvkr(:,:),zeroknvknv(:,:)
     type(dfdqdk)      :: dfqk1
     integer(c_int)    :: i, j, m, n
     integer(c_long), target  :: idx_m, idx_n
     integer(c_long), pointer :: idx_big, idx_small
+    allocate(zeroknvkr(knv,kr),zeroknvknv(knv,knv))
+    
     call read_dfqk(dfqk1_ch, dfqk1)
     zeroknvkr = 0.0_c_double;  zeroknvknv = 0.0_c_double
     
@@ -1976,6 +2391,7 @@ contains
           enddo
        enddo
     enddo
+    deallocate(zeroknvkr,zeroknvknv)
   end subroutine
 
   recursive subroutine tntm(kr,knv,knu,kmv,kmu,dfqk1_ch, &
@@ -1988,12 +2404,13 @@ contains
     real(c_double)    :: &
                        & dodvev(knv,knv,knu,knu), dodphiev(knv,knv,knu,knv), &
                        & dgamdvev(knv,knu,knu), dgamdwev(knv,knu), dgamdphiev(knv,knu,knv), &
-                       & x0(kr), hessflat((derivlen*(derivlen+1))/2_c_int), dlijmn,dljimn,dljinm,dlijnm, &
-                       & zeroknvkr(knv,kr),zeroknvknv(knv,knv)
+                       & x0(kr), hessflat((derivlen*(derivlen+1))/2_c_int), dlijmn,dljimn,dljinm,dlijnm
+    real(c_double), allocatable :: zeroknvkr(:,:),zeroknvknv(:,:)
     type(dfdqdk)      :: dfqk1
     integer(c_int)    :: i, j, m, n
     integer(c_long), target  :: idx_m, idx_n
     integer(c_long), pointer :: idx_big, idx_small
+    allocate(zeroknvkr(knv,kr),zeroknvknv(knv,knv))
     call read_dfqk(dfqk1_ch, dfqk1)
     zeroknvkr = 0.0_c_double;  zeroknvknv = 0.0_c_double
     
@@ -2118,8 +2535,10 @@ contains
           enddo
        enddo
     enddo
+    deallocate(zeroknvkr,zeroknvknv)
   end subroutine
 
+  !! ONE OF THE BOTTLENECK FUNCTION
   recursive subroutine tntmthrfast(kr,knv,knu,kmv,kmu,dfqk1_ch, &
        & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev, x0, &
        & wsp, lwsp) bind(C, name="tntmthrfast_")
@@ -2131,11 +2550,12 @@ contains
                        & dodvev(knv,knv,knu,knu), dodphiev(knv,knv,knu,knv), &
                        & dgamdvev(knv,knu,knu), dgamdwev(knv,knu), dgamdphiev(knv,knu,knv), &
                        & x0(kr), dlijmn,dljimn,dljinm,dlijnm, &
-                       & zeroknvkr(knv,kr),zeroknvknv(knv,knv), &
                        & wsp(lwsp)
+    real(c_double), allocatable :: zeroknvkr(:,:), zeroknvknv(:,:)
     type(dfdqdk)      :: dfqk1
     integer(c_int)    :: i, j, m, n
     integer(c_size_t)   :: r
+    allocate(zeroknvkr(knv,kr),zeroknvknv(knv,knv))
     call read_dfqk(dfqk1_ch, dfqk1)
     zeroknvkr = 0.0_c_double;  zeroknvknv = 0.0_c_double
     r = 1
@@ -2300,6 +2720,7 @@ contains
           enddo
        enddo
     enddo
+    deallocate(zeroknvkr,zeroknvknv)
 !    if (r-1 /= lwsp) print *, "LENGTH IS WRONG!", r-1, lwsp
     !! lwsp = (knu*(knu+1)/2)*(kmu*(kmu+1)/2)+ knv*knu + kmu*kmu + knu*(kmu*(kmu+1))/2 + knv*knu*kmv*kmu
     !!        + kmv*kmu*knu + (knu*(knu+1))/2 * kmv*kmu + knu*kmv*kmu + kmu*knu + kmu*knu*(knu+1)/2

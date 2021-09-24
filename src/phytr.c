@@ -229,7 +229,7 @@ extern void tmtm2_(int *kr, int *kv, int *ku, struct llst **fmlfm_c, struct llst
 		   struct dfdqdk *dfqk1_ch, double *K, double *x0, int *istip, double *solVLsO, double *solVLsOPhi, double *VmVLV,
 		   double *solVLB, double *Hto, double *hessflat, long *nparam, long *adphi, long *adV, long *adw);
 extern void updategbk_(int *kv, int *ku, struct llst **fmlfm_c, struct llst **fmlfm_new, struct llst **fm_c,
-		       struct llst **fm_new, struct llst **qm_c, struct llst **qm_new, double *Lamb, double *HPhi, double *a);
+		       struct llst **fm_new, struct llst **qm_c, struct llst **qm_new, double *Lamb, double *HPhi, double *a, int *mdim);
 extern void tndown1st_(struct dfdqdk *dfqk1_ch, double *K, double *H, double *HPhi,double *w, double *a, double *f1m,
 		       double *q1m, double *Lamb, double *solV, double *solVLsOPhi, int *kr, int *kv, int *ku,
 		       struct dfdqdk *dfqk1new_ch);
@@ -1523,7 +1523,7 @@ UPDESC:
 	gbkcpy(&(curglob.gbk_new), curglob.gbk);
 	updategbk_( &(curglob.kv), &(curglob.m->ndat.ku),
 		    &(curglob.gbk_new->fmlfm), &(fmlfm_new), &(curglob.gbk_new->fm), &(fm_new), &(curglob.gbk_new->qm), &(qm_new),
-		    curglob.m->ndat.Lamb,                    curglob.m->ndat.HPhi,              curglob.m->ndat.a);
+		    curglob.m->ndat.Lamb,                    curglob.m->ndat.HPhi,              curglob.m->ndat.a, &(curglob.gbk->mdim));
 	for (l=curglob.gbk_new->a; l->nxt; l=l->nxt);;
 	l->nxt     = a_new;
 	a_new->siz = curglob.m->ndat.ku;
@@ -2259,6 +2259,7 @@ void tagmiss(struct node *t, int *TM, int maxdim, int ntips, int nnodes, int *M)
 
 int chkusrhess_VwOrPhi(SEXP Robj, int VwOrPhi, int nparregime, int ku, int kv) {
 	int ld; SEXP Rdim;
+    ld = 0;         /* Just to make GCC shut up. */
 	switch (VwOrPhi) {
 	case 2: 		/* V */
 		ld = (ku*(ku+1))/2;   break;
@@ -2895,6 +2896,8 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	int chked_jaclower = 0;
 	int chked_jacthis = 0;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
+    jacthis = NULL;  /* Just to make GCC shut up. */
+    jlower  = NULL;  /* Just to make GCC shut up. */
 	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
 	parin    = REAL(Rpar);
 	hessin    = REAL(Rhess);
