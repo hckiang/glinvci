@@ -861,7 +861,7 @@ fit = function (mod, ...) UseMethod('fit')
 #'                     \item{convergence}{Zero if the optimisation routine has converged successfully.}
 #'                     \item{message}{A message from the optimisation routine.}
 #' @export
-fit.glinv = function (mod, parinit=NULL, method='CG', lower=-Inf, upper=Inf, use_optim=FALSE, control=list(), ...) {
+fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, control=list(), ...) {
   if (is.null(parinit))
     parinit = if (is.finite(lower) && is.finite(upper))
                 stats::runif(mod$nparams, lower, upper)

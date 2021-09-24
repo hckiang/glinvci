@@ -10,7 +10,7 @@ fit(mod, ...)
 \method{fit}{glinv}(
   mod,
   parinit = NULL,
-  method = "CG",
+  method = "L-BFGS-B",
   lower = -Inf,
   upper = Inf,
   use_optim = FALSE,
