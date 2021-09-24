@@ -80,24 +80,24 @@ Gradient:
 [1] -519.02035   45.62066 -500.23748   -7.64877  -58.73828 1294.12584  158.72065
 [8] 1078.79563
 Hessian:
-           [,1]      [,2]       [,3]      [,4]      [,5]       [,6]       [,7]
-[1,] -1787.1716   62.9472     0.0000  -25.5207    0.0000  1342.9275   -88.6955
-[2,]    62.9472 -877.1531    17.3265  -63.7235  -12.7604   -28.5241   936.3116
-[3,]     0.0000   17.3265 -1759.0064    0.0000 -127.4470     0.0000   -40.3392
-[4,]   -25.5207  -63.7235     0.0000 -367.6268    0.0000    15.2975    83.0685
-[5,]     0.0000  -12.7604  -127.4470    0.0000 -367.6268     0.0000    10.8170
-[6,]  1342.9275  -28.5241     0.0000   15.2975    0.0000 -2988.2517  -158.7206
-[7,]   -88.6955  936.3116   -40.3392   83.0685   10.8170  -158.7206 -2988.2517
-[8,]     0.0000  -62.7172  1305.3618    0.0000  117.4766     0.0000  -317.4413
-           [,8]
-[1,]     0.0000
-[2,]   -62.7172
-[3,]  1305.3618
-[4,]     0.0000
-[5,]   117.4766
-[6,]     0.0000
-[7,]  -317.4413
-[8,] -2557.5913
+           [,1]      [,2]       [,3]      [,4]      [,5]       [,6]
+[1,] -1787.1716   62.9472     0.0000  -25.5207    0.0000  1342.9275
+[2,]    62.9472 -877.1531    17.3265  -63.7235  -12.7604   -28.5241
+[3,]     0.0000   17.3265 -1759.0064    0.0000 -127.4470     0.0000
+[4,]   -25.5207  -63.7235     0.0000 -367.6268    0.0000    15.2975
+[5,]     0.0000  -12.7604  -127.4470    0.0000 -367.6268     0.0000
+[6,]  1342.9275  -28.5241     0.0000   15.2975    0.0000 -2988.2517
+[7,]   -88.6955  936.3116   -40.3392   83.0685   10.8170  -158.7206
+[8,]     0.0000  -62.7172  1305.3618    0.0000  117.4766     0.0000
+           [,7]       [,8]
+[1,]   -88.6955     0.0000
+[2,]   936.3116   -62.7172
+[3,]   -40.3392  1305.3618
+[4,]    83.0685     0.0000
+[5,]    10.8170   117.4766
+[6,]  -158.7206     0.0000
+[7,] -2988.2517  -317.4413
+[8,]  -317.4413 -2557.5913
 ```
 
 The maximum likelihood estimates can be obtained by calling the `fit.glinv` method. We use the `parinit` which we have constructed before as the optimisation routine’s initialisation:
@@ -108,25 +108,27 @@ The maximum likelihood estimates can be obtained by calling the `fit.glinv` meth
 ```
 $mlepar
         H1         H2         H3     theta1     theta2     sig_x1     sig_x2
- 1.7473088  3.0687662  0.9462338 -0.0417478 -0.0967537  2.1723982  4.3828934
+ 1.7883480  3.2584507  0.9489094 -0.0417397 -0.0967488  2.2131622  4.6633817
     sig_x3
- 1.3741767
+ 1.3769953
+
+$score
+          H1           H2           H3       theta1       theta2       sig_x1
+ 0.000923787 -0.001891418  0.000803219 -0.000420278  0.000491690 -0.001620165
+      sig_x2       sig_x3
+ 0.000240675 -0.002768440
 
 $loglik
-[1] 599.386
+[1] 599.385
 
 $counts
-[1] 852 345
+[1] 493 493
 
 $convergence
 [1] 0
 
 $message
-[1] "Rcgmin seems to have converged"
-
-$score
-[1]  0.0010458539  0.0012164202  0.0019767975  0.0000223676  0.0001637558
-[6] -0.0000594491  0.0027448292  0.0013087048
+[1] "CONVERGENCE: REL_REDUCTION_OF_F_<=_FACTR*EPSMCH"
 ```
 
 Once the model is fitted, one can estimate the variance-covariance matrix of the maximum-likelihood estimator using `varest`.
@@ -138,18 +140,18 @@ The marginal confidence interval can be obtained by calling `marginal_ci` on the
     print(marginal_ci(v_estimate, lvl=0.95))
 
 ```
-Lower      Upper
-H1      -0.986260  4.4808777
-H2      -8.798587 14.9361198
-H3       0.122600  1.7698674
-theta1  -0.194455  0.1109592
-theta2  -0.247122  0.0536148
-sig_x1  -0.546810  4.8916064
-sig_x2 -13.162203 21.9279898
-sig_x3   0.549033  2.1993203
+            Lower      Upper
+H1      -2.564415  6.1411108
+H2     -16.193767 22.7106680
+H3       0.103568  1.7942504
+theta1  -0.194444  0.1109650
+theta2  -0.247124  0.0536267
+sig_x1  -2.115801  6.5421255
+sig_x2 -24.044181 33.3709443
+sig_x3   0.528665  2.2253252
 ```
 
-Notice that some of the parameters have fairly large confidence intervals. This suggests that perhaps we do not have enough data to precisely estimate all the parameters.
+Notice that some of the parameters have fairly large confidence intervals and the likelihood surface is quite flat in some directions. This suggests that perhaps we do not have enough data to precisely estimate all the parameters, or the data does not allow us to estimate the parameters well. This makes sense because we have generated the data in a way that is completely unrelated to the evolutionary model.
 
 # Example #2: Brownian Motion
 
@@ -279,7 +281,7 @@ The `repar$jac` function simply returns the Jacobian matrix of `repar$par`.
     print(repar$jac(c(1,1,0,0,0,0,0), 0.1, c('OK','OK'), c('OK','OK')))
 
 ```
-[,1]       [,2]     [,3]     [,4]    [,5]     [,6]    [,7]
+            [,1]       [,2]     [,3]     [,4]    [,5]     [,6]    [,7]
  [1,] -0.0904837  0.0000000 0.000000 0.000000 0.00000 0.000000 0.00000
  [2,]  0.0000000  0.0000000 0.000000 0.000000 0.00000 0.000000 0.00000
  [3,]  0.0000000  0.0000000 0.000000 0.000000 0.00000 0.000000 0.00000
@@ -359,3 +361,4 @@ Now the user can fit the model as usual.
 
     fitted  = fit(mod, par_init=c(1,1,0,0,0,0,0,0.5,0.5))
     confint = marginal_ci(varest(mod, fitted$mlepar), lvl=0.95)
+
