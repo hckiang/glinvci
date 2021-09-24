@@ -851,6 +851,8 @@ fit = function (mod, ...) UseMethod('fit')
 #' @param lower        A vector of lower bounds on the parameters.
 #' @param upper        A vector of upper bounds on the parameters.
 #' @param use_optim    If true, use optim's version of \code{L-BFGS-B} and \code{CG}.
+#' @param project      Passed to \code{BBoptim}.
+#' @param projectArgs  Passed to \code{BBoptim}.
 #' @param control      Options to be passed into each the underlying optimisation routine's \code{control}
 #'                     argument.
 #' @param ...          Not used.
@@ -861,7 +863,7 @@ fit = function (mod, ...) UseMethod('fit')
 #'                     \item{convergence}{Zero if the optimisation routine has converged successfully.}
 #'                     \item{message}{A message from the optimisation routine.}
 #' @export
-fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, control=list(), ...) {
+fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, project=NULL, projectArgs=NULL, control=list(), ...) {
   if (is.null(parinit))
     parinit = if (is.finite(lower) && is.finite(upper))
                 stats::runif(mod$nparams, lower, upper)
@@ -873,7 +875,10 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
                                     gr    = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
                                     lower = lower,
                                     upper = upper,
-                                    control= list_set_default(control, list(trace = T, maxit = 500000)))
+                                    control= list_set_default(control,
+                                                              list(trace = T,
+                                                                   maxit = 500000,
+                                                                   factr = 600000)))
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              names(r)[which(names(r) == 'grad')]  = 'score'
@@ -899,7 +904,12 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
                          gr     = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
                          lower = lower,
                          upper = upper,
-                         control= list_set_default(control, list(maxit = 500000, gtol=1e-3, ftol=1e-8)))
+                         project = project,
+                         projectArgs = projectArgs,
+                         control= list_set_default(control, list(maxit = 500000,
+                                                                 gtol=8e-4,
+                                                                 ftol=0.000000000133227,
+                                                                 checkGrad=F)))
              names(r)[which(names(r) == 'par')]      = 'mlepar'
              names(r)[which(names(r) == 'value')]    = 'loglik'
              r = r[-which(names(r) == "gradient")]
@@ -913,7 +923,7 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
                    upper  = upper,
                    control= list_set_default(control, list(maxit=500000,trace=1)),
                    method = method)
-                          names(r)[which(names(r) == 'par')]   = 'mlepar'
+             names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              r = c(r, list(score = grad(mod)(r[['mlepar']])))
              r
