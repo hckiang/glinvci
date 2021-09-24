@@ -2897,7 +2897,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	int chked_jacthis = 0;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
     jacthis = NULL;  /* Just to make GCC shut up. */
-    jlower  = NULL;  /* Just to make GCC shut up. */
+    jaclower  = NULL;  /* Just to make GCC shut up. */
 	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
 	parin    = REAL(Rpar);
 	hessin    = REAL(Rhess);
