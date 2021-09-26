@@ -1,7 +1,7 @@
 Package: glinvci
 Type: Package
 Title: Phylogenetic Comparative Methods with Uncertainty Estimates
-Version: 1.1.5
+Version: 1.1.5.9002
 Date: 2021-09-25
 Authors@R: c(person(family="Kiang", given="Hao Chi", role=c("cre","aut"), email="hello@hckiang.com"))
 Maintainer: Hao Chi Kiang <hello@hckiang.com>

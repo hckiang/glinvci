@@ -379,7 +379,7 @@ void vwphi_paradr2(struct node *t, int *adtab, int ldt) {
 		vwphi_paradr2(p, adtab, ldt);
 }
 void vwphi_paradr(struct node *t, int *adtab, int ldt) {
-	adtab[t->id] = NA_REAL; adtab[t->id+ldt] = NA_REAL;
+	adtab[t->id] = NA_INTEGER; adtab[t->id+ldt] = NA_INTEGER;
 	for (struct node *p=t->chd; p; p=p->nxtsb) vwphi_paradr2(p, adtab, ldt);
 }
 SEXP Rvwphi_paradr(SEXP Rt) {
