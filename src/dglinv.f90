@@ -35,15 +35,15 @@ module dglinv
   end type
 
   type dfdqdk
-     real(c_double), contiguous, pointer::          dfdv(:,:,:,:)
-     real(c_double), contiguous, pointer::          dfdphi(:,:,:,:)
-     real(c_double), contiguous, pointer::          dqdv(:,:,:)
-     real(c_double), contiguous, pointer::          dqdphi(:,:,:)
-     real(c_double), contiguous, pointer::          dqdw(:,:)
-     real(c_double), contiguous, pointer::          dkdv(:,:,:,:)
-     real(c_double), contiguous, pointer::          dkdphi(:,:,:,:)
-     real(c_double), contiguous, pointer::          f1n(:,:)
-     real(c_double), contiguous, pointer::          q1n(:)
+     real(c_double), pointer::          dfdv(:,:,:,:)
+     real(c_double), pointer::          dfdphi(:,:,:,:)
+     real(c_double), pointer::          dqdv(:,:,:)
+     real(c_double), pointer::          dqdphi(:,:,:)
+     real(c_double), pointer::          dqdw(:,:)
+     real(c_double), pointer::          dkdv(:,:,:,:)
+     real(c_double), pointer::          dkdphi(:,:,:,:)
+     real(c_double), pointer::          f1n(:,:)
+     real(c_double), pointer::          q1n(:)
      integer(c_int), pointer::          kr
      integer(c_int), pointer::          knu
      integer(c_int), pointer::          knv
@@ -72,7 +72,7 @@ contains
     type(dfdqdk)              :: dfqk_ftn
     type(dfdqdkCMEM), target  :: dfqk_cptr
     integer(c_int)    :: p
-    real(c_double), contiguous, pointer :: L(:)
+    real(c_double), pointer :: L(:)
     dfqk_ftn%kr  => dfqk_cptr%kr
     dfqk_ftn%knu => dfqk_cptr%knu
     dfqk_ftn%knv => dfqk_cptr%knv
@@ -1059,7 +1059,7 @@ contains
          & solVLsO(ku,ku), solVLsOPhi(ku*kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku)!, &
          !& solVL(ku,ku)
     real(c_double), target :: solVLsOPhi
-    real(c_double), contiguous, pointer :: solVL(:,:)
+    real(c_double), pointer :: solVL(:,:)
     solVL(1:ku,1:ku) => solVLsOPhi(1:)
     !! Use solVLsOPhi to store solV
     call dgemm('N','N',ku,ku,ku,1.0_c_double,solV,ku,Lamb,ku,0.0_c_double,solVL,ku)
@@ -1202,7 +1202,7 @@ contains
     type(c_ptr), intent(in) :: falfm_c, fmg_c
     type(c_ptr) :: i_c
     type(llst), pointer :: falfm_p, fmg_p
-    real(c_double), contiguous, pointer :: lamb_beta(:,:)
+    real(c_double), pointer :: lamb_beta(:,:)
     real(c_double), allocatable :: lamb(:,:)
     call c_f_pointer(falfm_c, falfm_p);    lamb_beta(1:kbu,1:kbu) => falfm_p%dat(1:)
     call c_f_pointer(fmg_c, fmg_p)
@@ -1227,7 +1227,7 @@ contains
     real(c_double), intent(in) :: Lamb(ku,ku), HPhi(ku,kv), a(ku)
     type(c_ptr), intent(out) :: fmlfm_new, fm_new, qm_new
     type(llst), pointer :: tmp_p
-    real(c_double), contiguous, pointer :: dcur(:,:), dnew(:,:), qcur(:), qnew(:), &
+    real(c_double), pointer :: dcur(:,:), dnew(:,:), qcur(:), qnew(:), &
                                          & tmpkvkthis(:,:)
     type(c_ptr) :: i_c
     real(c_double), allocatable :: tmpkvku(:,:)
@@ -1295,7 +1295,7 @@ contains
        & x0, istip,solVLsO,solVLsOPhi,VmVLV,solVLB,Hto, d2L)
     integer(c_int) :: ictx, istip, i,j,m,n,kr,kv,ku
     !!real(c_double), pointer :: fm(:,:), q1m(:)
-    real(c_double), contiguous, pointer :: fm(:,:), q1m(:)
+    real(c_double), pointer :: fm(:,:), q1m(:)
     real(c_double) :: ho(kv,kv), hgam(kv), hc, hd
     real(c_double) :: ho1(kr,kr), hgam1(kr), hc1, hd1,   dqm1(kv), dkm1(kv,kv), dFm1(kv,kr), k(kv,kv)
     real(c_double) :: x0(kr), dodtn(kv,kv), dgamdtn(kv)
@@ -1374,7 +1374,7 @@ contains
     type(dfdqdk) :: dfqk1
     type(llst), pointer :: it_p
     !!real(c_double), pointer :: f1m(:,:), q1m(:)
-    real(c_double), contiguous, pointer :: f1m(:,:), q1m(:)
+    real(c_double), pointer :: f1m(:,:), q1m(:)
     real(c_double) :: solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku)
     !! If istip:      solV          , solVPhi,         , IGNORED,      solVxw,     IGNORED
     kvzero = 0.0_c_double;       kvkrzero = 0.0_c_double
@@ -1507,7 +1507,7 @@ contains
     type(dfdqdk) :: dfqk1
     type(llst), pointer :: it_p
     !!real(c_double), pointer :: f1m(:,:), q1m(:)
-    real(c_double), contiguous, pointer :: f1m(:,:), q1m(:)
+    real(c_double), pointer :: f1m(:,:), q1m(:)
     real(c_double) :: solVLsO(ku,ku), solVLsOPhi(ku,kv), VmVLV(ku,ku), solVLb(ku), Hto(ku,ku)
     !! If istip:      solV          , solVPhi,         , IGNORED,      solVxw,     IGNORED
     kvzero = 0.0_c_double;       kvkrzero = 0.0_c_double
@@ -1621,13 +1621,13 @@ contains
     integer(c_int), intent(in)  :: ku, kv, kr
     type(llstptr), pointer :: a_p
     type(llst),    pointer :: fm_p,   fmlfm_p,   qm_p
-    real(c_double), contiguous, pointer :: a(:), fm(:,:), qm(:), fmlfm(:,:), tailsum_fmlfm(:,:)
+    real(c_double), pointer :: a(:), fm(:,:), qm(:), fmlfm(:,:), tailsum_fmlfm(:,:)
     type(c_ptr) ::  i_c,j_c,k_c,r_c
     real(c_double), intent(out), target :: k(kv,kv)
     type(c_ptr), allocatable :: stfm(:), sta(:), stfmlfm(:)
     real(c_double), allocatable :: tmpkvkv(:,:), tmpkvkv2(:,:)
     real(c_double), allocatable, target :: tmpkr(:)
-    real(c_double), contiguous, pointer :: tmpkts(:) ! points to tmpkr with varying sizes
+    real(c_double), pointer :: tmpkts(:) ! points to tmpkr with varying sizes
     integer(c_int) :: i,m,n
     real(c_double) :: dodvev(kv,kv,ku,ku), dodphiev(kv,kv,ku,kv), dgamdvev(kv,ku,ku), &
          & dgamdwev(kv,ku), dgamdphiev(kv,ku,kv)
@@ -1980,7 +1980,7 @@ contains
         & tailsum_falfm(:,:)
     type(llst), pointer :: fmg_p, qmg_p, falfm_p
     type(llstptr), pointer :: a_p
-    real(c_double), contiguous, pointer :: a(:), fmg(:,:), qmg(:), falfm(:,:)
+    real(c_double), pointer :: a(:), fmg(:,:), qmg(:), falfm(:,:)
 
     allocate(stfmg(1660000), sta(1660000), stfalfm(1660000), stfalfm_nxt(1660000))     ! 50 MBs. 
     call read_dfqk(dfqk1_ch, dfqk1)
@@ -2152,7 +2152,7 @@ contains
     integer(c_int) :: j
     type(c_ptr) :: i_c
     type(llst), pointer :: tmp_p, fmg_p
-    real(c_double), contiguous, pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
+    real(c_double), pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
     real(c_double), allocatable :: tmpkbukr(:,:), tmpkbukmv(:,:)
     allocate(tmpkbukr(kbu,kr), tmpkbukmv(kbu,kmv))
 
