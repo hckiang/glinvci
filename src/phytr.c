@@ -12,12 +12,17 @@
 #ifdef _MSC_VER
 #define __PRAGMA__ __pragma
 #else
+#if defined(sun) || defined(__sun)
+#define __PRAGMA__(x)
+#else
 #define __PRAGMA__ _Pragma
+#endif
 #endif
 
 /* Old versions of OpenMP (for example in Open64 compilers) doesn't support the atomic
    read/write with pointer assignments. In that case we resort to locking the entire
    piece of code. */
+#if !(defined(sun) || defined(__sun))
 #ifdef _OPENMP
 #if _OPENMP > 201400
 #define __ATOMIC_READ__  __PRAGMA__("omp atomic read")
@@ -25,6 +30,10 @@
 #else
 #define __ATOMIC_READ__  __PRAGMA__("omp critical")
 #define __ATOMIC_WRITE__ __PRAGMA__("omp critical")
+#endif
+#else
+#define __ATOMIC_READ__
+#define __ATOMIC_WRITE__
 #endif
 #else
 #define __ATOMIC_READ__
@@ -793,9 +802,9 @@ void grad(struct node *t, double *x0) {
 	struct diffbk bk = {0};
 	mkdiffbk(&bk, t->ndat.ku, t->ndat.ku);
 	diagone_(bk.F, &(t->ndat.ku));
-	#pragma omp parallel
+	__PRAGMA__("omp parallel")
 	{
-		#pragma omp master
+		__PRAGMA__("omp master")
 		{
 			for (struct node *p = t->chd; p; p = p->nxtsb) {
 				/* The direct children of the root requires different treatment. */
@@ -823,12 +832,12 @@ void gradwk(struct node *a, struct node *b, struct node *c,
 		 a->ndat.dcdw, a->ndat.dcdv, a->ndat.dddv, a->ndat.dlikdv, a->ndat.dlikdw,
 		 a->ndat.dlikdphi, newbk.F, newbk.z, newbk.K);
 	for (struct node *p = a->chd; p; p = p->nxtsb) {
-		#pragma omp task if (p->ndat.ndesc >=30)
+		__PRAGMA__("omp task if (p->ndat.ndesc >=30)")
 		{
 			gradwk(p, a, b, x0, newbk, kr);
 		}
 	}
-	#pragma omp taskwait
+	__PRAGMA__("omp taskwait")
 	freediffbk(&newbk);
 }
 
@@ -892,7 +901,7 @@ void fillhnbk_wk (struct node *t, SEXP VwPhi_L, int kv, fn_getvwphi get_VwPhi, v
 }
 
 static double *thrpv_bilinmat;	/* Thread-private. Only used in online bilinear form updates (that is, when dir is non-NULL). */
-#pragma omp threadprivate(thrpv_bilinmat)
+__PRAGMA__("omp threadprivate(thrpv_bilinmat)")
 
 int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *wsp, size_t swsp,
 	 size_t lwsp, double *extrmem, double *dir, int ndir) {
@@ -979,7 +988,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 			/* If it's a tip then invVLsOPhi isn't defined. */
 			dfqk_mmp1_(dfqk1new_ch, p->ndat.H, p->ndat.HPhi, w, p->ndat.a, p->ndat.Lamb,
 				   p->ndat.invV, p->u.hnbk.u.hsbkgen.invVLsOPhi, &(p->ndat.ku), &(t->ndat.ku));
-			if (!(stdesc = malloc(sizeof(*stdesc) * 50*1024*1024))) {
+			if (!(stdesc = malloc(sizeof(*stdesc) * 50*1024*4))) {
 				deldfqk(dfqk1new_ch);
 				free(dfqk1new_ch);
 				goto MEMFAIL;
@@ -1007,7 +1016,7 @@ DOWNDESC:
 					tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a, &(curdesc.kv),
 						&(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1new_ch);
 					for (curdesc.p = curdesc.n->chd; curdesc.p; curdesc.p = curdesc.p->nxtsb) {
-						if (j >= 50*1024*1024)             goto STACKFAIL;
+						if (j >= 50*1024*4)             goto STACKFAIL;
 						stdesc[j++] = curdesc;
 						curdesc.kv=curdesc.n->ndat.ku;  curdesc.dfqk1_ch=curdesc.dfqk1new_ch;
 						curdesc.n =curdesc.p;           curdesc.p=NULL;
@@ -1027,7 +1036,7 @@ UPDESC:
 		}
 		initgbk(&gbk, t, p, maxdim(t));
 		wkret = 0;
-		#pragma omp parallel shared(wkret)
+		__PRAGMA__("omp parallel shared(wkret)")
 		{
 			thrpv_bilinmat = NULL;
 			if (dir) {
@@ -1038,10 +1047,10 @@ UPDESC:
 					dzero(thrpv_bilinmat, ndir*ndir);
 				}
 			}
-			#pragma omp barrier
+			__PRAGMA__("omp barrier")
 			/* If some threads failed their allocation then all threads should finish itself up, ending the parallel region.  */
 			if (wkret == 3) goto END_THREAD;
-			#pragma omp master
+			__PRAGMA__("omp master")
 			{
 				int interrupted = 0;
 				for (struct node *q = p->chd; q; q = q->nxtsb) {
@@ -1049,11 +1058,11 @@ UPDESC:
 					if (wkret || interrupted) break;
 				}
 				/* Now wait for everything to finish... */
-				#pragma omp taskwait
+				__PRAGMA__("omp taskwait")
 			}
-			#pragma omp barrier
+			__PRAGMA__("omp barrier")
 			if (dir) {
-				#pragma omp critical 
+				__PRAGMA__("omp critical")
 				{
 					for (int k=0; k<ndir*ndir; ++k) {
 						extrmem[k] = extrmem[k] + thrpv_bilinmat[k];
@@ -1061,7 +1070,7 @@ UPDESC:
 				}
 			}
 END_THREAD:
-			if (thrpv_bilinmat) free(thrpv_bilinmat);
+			free(thrpv_bilinmat);
 		}
 		delgbk(gbk);
 		if (wkret) break;
@@ -1228,7 +1237,7 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 		for (z = z->nxtsb; z; z = z->nxtsb) {
 			/* Invariants: stalpha[0].dfqk1_ch never changes from before the for loop to after. */
 			stalpha[q].kv = pv_ancestry[k]->ndat.ku; stalpha[q].n = z;
-		DOWNALPHA:			
+DOWNALPHA:
 #define KR  (pv_rt->ndat.ku)
 #define KNV (stalpha[q].kv)
 #define KNU (stalpha[q].n->ndat.ku)
@@ -1352,8 +1361,8 @@ int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk,
 	K = NULL;
 	dfqk1_ch = NULL;
 	dfqk1new_ch = NULL;
-	if (!(stglob = malloc(sizeof(*stglob) * 50*1024*1024))) goto MEMFAIL;
-	memset(stglob, 0, sizeof(*stglob) * 50*1024*1024);
+	if (!(stglob = malloc(sizeof(*stglob) * 50*1024*4))) goto MEMFAIL;
+	memset(stglob, 0, sizeof(*stglob) * 50*1024*4);
 	curglob.kv = parent->ndat.ku;
 	curglob.m = m; curglob.gbk = gbk;
 	stglob[0].m = parent;	/* Artificially push the parent into the stack, since the parent here must be a direct child
@@ -1435,7 +1444,7 @@ DOWNGLOB:
 		ndesc_sum += ancestry[k]->ndat.ndesc;
 	}
 
-	#pragma omp task if (ndesc_sum > 35)
+	__PRAGMA__("omp task if (ndesc_sum > 35)")
 	{
 		walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, promise_id, mdim, interrupted, extrmem, dir, ndir);
 	}
@@ -1529,7 +1538,7 @@ UPDESC:
 	a_new->siz = curglob.m->ndat.ku;
 	a_new->dat = curglob.m->ndat.a;
 	for (curglob.v = curglob.m->chd; curglob.v; curglob.v = curglob.v->nxtsb) {
-		if (i >= 50*1024*1024)             goto STACKFAIL;
+		if (i >= 50*1024*4)             goto STACKFAIL;
 		stglob[i++] = curglob;
 		curglob.kv = curglob.m->ndat.ku; curglob.m=curglob.v;  curglob.gbk = curglob.gbk_new;
 		goto DOWNGLOB;
@@ -1543,8 +1552,8 @@ DONE:
 	free(stglob);
 	goto SUCCESS;
 MEMFAIL:
-        { /* You have to wrap this line with that curly braces to stop GCC from complaining. */
-		#pragma omp taskwait
+	{ /* You have to wrap this line with that curly braces to stop GCC from complaining. */
+		__PRAGMA__("omp taskwait")
 	}
 	free(stglob);
 	free(K);
@@ -1553,7 +1562,7 @@ MEMFAIL:
 	return 3;
 STACKFAIL:
 	{
-		#pragma omp taskwait
+		__PRAGMA__("omp taskwait")
 	}
 	free(stglob);
 	free(K);
@@ -1564,8 +1573,8 @@ MASTER_INTERRUPTED:
 	/* Send out signal to shutdown every other threads. */
 	__ATOMIC_WRITE__
 		*interrupted = 1;
-	#pragma omp flush
-	#pragma omp taskwait
+	__PRAGMA__("omp flush")
+	__PRAGMA__("omp taskwait")
 	/* Free up everything left in the stack. */
 	for (; i>=2; --i) delgbk(*(stglob[i].gbk));
 	free(stglob);
@@ -2333,7 +2342,7 @@ void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP fnh, SEXP env
 	nodeid = INTEGER(Rnodeidcell);
 	*nodeid = (t->id)+1;
 	Rf_call     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
-	Rans = eval(Rf_call, env); /* Trusted because the user function was wrapped and checked */
+	Rans = PROTECT(eval(Rf_call, env)); /* Trusted because the user function was wrapped and checked */
 	RVans = Rlistelem(Rans, "V");
 	Rwans = Rlistelem(Rans, "w");
 	RPhians = Rlistelem(Rans, "Phi");
@@ -2343,7 +2352,7 @@ void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP fnh, SEXP env
 			wsp);
 	for (p = t->chd; p; p = p->nxtsb)
 		curvifyhess(H, p, npar, t->ndat.ku, fnh, env, wsp, Rpar);
-	UNPROTECT(2);
+	UNPROTECT(3);
 }
 
 /*
