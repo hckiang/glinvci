@@ -9,15 +9,16 @@
 
 /* Microsoft had only added support to the C99 _Pragma() in 2020 summer. For older
    MS compilers we need __pragma(). */
-#ifdef _MSC_VER
-#define __PRAGMA__ __pragma
-#else
-#if defined(sun) || defined(__sun)
+//#ifdef _MSC_VER
+//#define __PRAGMA__ __pragma
+//#else
+//#if defined(sun) || defined(__sun)
+//#define __PRAGMA__(x)
+//#else
+//#define __PRAGMA__ _Pragma
+//#endif
+//#endif
 #define __PRAGMA__(x)
-#else
-#define __PRAGMA__ _Pragma
-#endif
-#endif
 
 /* Old versions of OpenMP (for example in Open64 compilers) doesn't support the atomic
    read/write with pointer assignments. In that case we resort to locking the entire
@@ -802,19 +803,13 @@ void grad(struct node *t, double *x0) {
 	struct diffbk bk = {0};
 	mkdiffbk(&bk, t->ndat.ku, t->ndat.ku);
 	diagone_(bk.F, &(t->ndat.ku));
-	__PRAGMA__("omp parallel")
-	{
-		__PRAGMA__("omp master")
-		{
-			for (struct node *p = t->chd; p; p = p->nxtsb) {
-				/* The direct children of the root requires different treatment. */
-				ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
-				      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
-				      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
-				for (struct node *q = p->chd; q; q = q->nxtsb)
-					gradwk(q, p, t, x0, bk, t->ndat.ku);
-			}
-		}
+	for (struct node *p = t->chd; p; p = p->nxtsb) {
+		/* The direct children of the root requires different treatment. */
+		ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
+		      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
+		      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
+		for (struct node *q = p->chd; q; q = q->nxtsb)
+			gradwk(q, p, t, x0, bk, t->ndat.ku);
 	}
 	freediffbk(&bk);
 }
@@ -831,13 +826,8 @@ void gradwk(struct node *a, struct node *b, struct node *c,
 		 a->ndat.dodv, a->ndat.dodphi, a->ndat.dgamdv, a->ndat.dgamdw, a->ndat.dgamdphi,
 		 a->ndat.dcdw, a->ndat.dcdv, a->ndat.dddv, a->ndat.dlikdv, a->ndat.dlikdw,
 		 a->ndat.dlikdphi, newbk.F, newbk.z, newbk.K);
-	for (struct node *p = a->chd; p; p = p->nxtsb) {
-		__PRAGMA__("omp task if (p->ndat.ndesc >=30)")
-		{
-			gradwk(p, a, b, x0, newbk, kr);
-		}
-	}
-	__PRAGMA__("omp taskwait")
+	for (struct node *p = a->chd; p; p = p->nxtsb)
+		gradwk(p, a, b, x0, newbk, kr);
 	freediffbk(&newbk);
 }
 
@@ -1071,6 +1061,7 @@ UPDESC:
 			}
 END_THREAD:
 			free(thrpv_bilinmat);
+			__PRAGMA__("omp barrier")
 		}
 		delgbk(gbk);
 		if (wkret) break;
@@ -1149,7 +1140,7 @@ MEMFAIL:
 /* BOTTLE NECK */
 /* Compute Hessians of parameters of outside-m's subtree wrt to m */
 void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_ancestry,
-		 void *pv_starters, int pv_kv, int pv_promise_id, int pv_mdim, int *interrupted, double *extrmem, double *dir, int ndir) {
+		 void *pv_starters, int pv_kv, int pv_mdim, int *interrupted, double *extrmem, double *dir, int ndir) {
 	/* Performance note:
 
 	   1. Putting the parallelisation pragma at the for loop below will slow down the compuation by half.
@@ -1304,7 +1295,7 @@ DOWNALPHA:
 		for (b = 0; b < pushbackptr; ++b) {
 			/* HESS_WRITE */
 			if (dir) {
-				/* Update the bilinear forms in a thread-local storage. The values will be summed up in the master thread
+				/* Update the bilinear forms in a thread-local storage. The values will be summed up
 				   after all threads have finished. */
 				tntmcpydir_(&(pushback[b].knv), &(pushback[b].n->ndat.ku), &KMV, &KMU, hessmem+(pushback[b].hessptr), &(pushback[b].lblk),
 					    thrpv_bilinmat, dir, &ndir, &(pv_rt->u.rbk.nparam), &(pv_ancestry[pv_i]->u.hnbk.Phi),
@@ -1349,7 +1340,7 @@ int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk,
 		int kv;
 	} *stglob, curglob;
 	struct node **ancestry;
-	int promise_id=1, ndesc_sum;
+	int ndesc_sum;
 	int i=1;
 	int mdim;
 	int depth = 0;
@@ -1444,11 +1435,10 @@ DOWNGLOB:
 		ndesc_sum += ancestry[k]->ndat.ndesc;
 	}
 
-	__PRAGMA__("omp task if (ndesc_sum > 35)")
+	__PRAGMA__("omp task firstprivate(rt,x0,i,ancestry,starters,curglob,extrmem,interrupted,dir,ndir) if (ndesc_sum > 10)")
 	{
-		walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, promise_id, mdim, interrupted, extrmem, dir, ndir);
+		walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
 	}
-	++promise_id;
 	if (err) goto MEMFAIL;
 	if (!(curglob.m->chd)) {
 		if (i != 1) goto UPGLOB;    /* "Return" to the upper-level recursion */
