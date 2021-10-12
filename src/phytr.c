@@ -9,21 +9,24 @@
 
 /* Microsoft had only added support to the C99 _Pragma() in 2020 summer. For older
    MS compilers we need __pragma(). */
-//#ifdef _MSC_VER
-//#define __PRAGMA__ __pragma
-//#else
+#ifdef _OPENMP
+#ifdef _MSC_VER
+#define __PRAGMA__ __pragma
+#else
 //#if defined(sun) || defined(__sun)
 //#define __PRAGMA__(x)
 //#else
-//#define __PRAGMA__ _Pragma
+#define __PRAGMA__ _Pragma
 //#endif
-//#endif
-#define __PRAGMA__(x)
+#endif
+#endif
+
+#include"my_pragma.h"
 
 /* Old versions of OpenMP (for example in Open64 compilers) doesn't support the atomic
    read/write with pointer assignments. In that case we resort to locking the entire
    piece of code. */
-#if !(defined(sun) || defined(__sun))
+//#if !(defined(sun) || defined(__sun))
 #ifdef _OPENMP
 #if _OPENMP > 201400
 #define __ATOMIC_READ__  __PRAGMA__("omp atomic read")
@@ -36,10 +39,10 @@
 #define __ATOMIC_READ__
 #define __ATOMIC_WRITE__
 #endif
-#else
-#define __ATOMIC_READ__
-#define __ATOMIC_WRITE__
-#endif
+//#else
+//#define __ATOMIC_READ__
+//#define __ATOMIC_WRITE__
+//#endif
 
 /* Struct that represents the data carried by a node. Pointers will be to the heap.
    Invariant:  1. ndat for the global root exists, fields are allocated, but has no meaning.
@@ -803,13 +806,18 @@ void grad(struct node *t, double *x0) {
 	struct diffbk bk = {0};
 	mkdiffbk(&bk, t->ndat.ku, t->ndat.ku);
 	diagone_(bk.F, &(t->ndat.ku));
-	for (struct node *p = t->chd; p; p = p->nxtsb) {
-		/* The direct children of the root requires different treatment. */
-		ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
-		      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
-		      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
-		for (struct node *q = p->chd; q; q = q->nxtsb)
-			gradwk(q, p, t, x0, bk, t->ndat.ku);
+	__PRAGMA__("omp parallel")
+	{
+		__PRAGMA__("omp master")
+		for (struct node *p = t->chd; p; p = p->nxtsb) {
+			/* The direct children of the root requires different treatment. */
+			ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
+			      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
+			      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
+			for (struct node *q = p->chd; q; q = q->nxtsb)
+				gradwk(q, p, t, x0, bk, t->ndat.ku);
+		}
+		__PRAGMA__("omp barrier")
 	}
 	freediffbk(&bk);
 }
@@ -826,8 +834,11 @@ void gradwk(struct node *a, struct node *b, struct node *c,
 		 a->ndat.dodv, a->ndat.dodphi, a->ndat.dgamdv, a->ndat.dgamdw, a->ndat.dgamdphi,
 		 a->ndat.dcdw, a->ndat.dcdv, a->ndat.dddv, a->ndat.dlikdv, a->ndat.dlikdw,
 		 a->ndat.dlikdphi, newbk.F, newbk.z, newbk.K);
-	for (struct node *p = a->chd; p; p = p->nxtsb)
+	for (struct node *p = a->chd; p; p = p->nxtsb){
+		__PRAGMA__("omp task firstprivate(p,a,b,x0,newbk,kr) if (p->ndat.ndesc >=40)")
 		gradwk(p, a, b, x0, newbk, kr);
+	}
+	__PRAGMA__("omp taskwait")
 	freediffbk(&newbk);
 }
 
@@ -1037,6 +1048,7 @@ UPDESC:
 					dzero(thrpv_bilinmat, ndir*ndir);
 				}
 			}
+			__PRAGMA__("omp flush")
 			__PRAGMA__("omp barrier")
 			/* If some threads failed their allocation then all threads should finish itself up, ending the parallel region.  */
 			if (wkret == 3) goto END_THREAD;
@@ -1435,7 +1447,7 @@ DOWNGLOB:
 		ndesc_sum += ancestry[k]->ndat.ndesc;
 	}
 
-	__PRAGMA__("omp task firstprivate(rt,x0,i,ancestry,starters,curglob,extrmem,interrupted,dir,ndir) if (ndesc_sum > 10)")
+	__PRAGMA__("omp task firstprivate(rt,x0,i,ancestry,starters,curglob,extrmem,interrupted,dir,ndir) if (ndesc_sum > 40)")
 	{
 		walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
 	}

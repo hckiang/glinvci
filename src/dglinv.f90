@@ -802,9 +802,9 @@ contains
     call dgemm('N','T',ksc,ksb,ksc,1.0_c_double,Kb,ksc,HPhib,ksb,0.0_c_double,tmpkscksb,ksc)
     Ka = Lambb
     call dgemm('N','N',ksb,ksb,ksc,1.0_c_double,HPhib,ksb,tmpkscksb,ksc,1.0_c_double,Ka,ksb)
-    !Fa = matmul(HPhib, Fb)
-    !za = matmul(HPhib, zb) + ab
-    !Ka = matmul(HPhib, matmul(Kb, transpose(HPhib))) + Lambb
+!    Fa = matmul(HPhib, Fb)
+!    za = matmul(HPhib, zb) + ab
+!    Ka = matmul(HPhib, matmul(Kb, transpose(HPhib))) + Lambb
     call dgemv('N',ksb,ksr,1.0_c_double,Fa,ksb,x0,1_c_int,0.0_c_double,Fax0,1_c_int)
     zaFax02 = za + Fax0/2.0_c_double
     do j=1,ksa
@@ -816,10 +816,10 @@ contains
           call dgemv('N',ksb,ksb,1.0_c_double,dodvev(:,:,i,j),ksb,za,1_c_int,-2.0_c_double,tmpksb1,1_c_int)
           dlikdv(i,j) = dlikdv(i,j) + (ddot(ksb, za, 1_c_int, tmpksb1, 1_c_int) + dcdvev(i,j) + dddvev(i,j) + &
                 & ddot(ksb*ksb, dodvev(1,1,i,j), 1_c_int, Ka(1,1), 1_c_int))/(-2.0_c_double)
-          !dlikdv(i,j)=dot_product(Fax0, -matmul(dodvev(:,:,i,j), za + Fax0/(2.0_c_double))&
-          !     + dgamdvev(:,i,j)) &
-          !     +( dcdvev(i,j) + dot_product(za, matmul(dodvev(:,:,i,j), za) - 2.0_c_double * dgamdvev(:,i,j)) &
-          !     + dddvev(i,j) + sum(dodvev(:,:,i,j) * Ka) ) / (-2.0_c_double)
+!          dlikdv(i,j)=dot_product(Fax0, -matmul(dodvev(:,:,i,j), za + Fax0/(2.0_c_double))&
+!               + dgamdvev(:,i,j)) &
+!               +( dcdvev(i,j) + dot_product(za, matmul(dodvev(:,:,i,j), za) - 2.0_c_double * dgamdvev(:,i,j)) &
+!               + dddvev(i,j) + sum(dodvev(:,:,i,j) * Ka) ) / (-2.0_c_double)
        enddo
     enddo
     call symdiff0d(dlikdv, ksa, dlikdw) ! use dlikdw as workspace
@@ -832,16 +832,16 @@ contains
           call dgemv('N',ksb,ksb,1.0_c_double,dodphiev(:,:,i,j),ksb,za,1_c_int,-2.0_c_double,tmpksb1,1_c_int)
           dlikdphi(i,j) = dlikdphi(i,j) + (ddot(ksb, za, 1_c_int, tmpksb1, 1_c_int) + &
                 & ddot(ksb*ksb, dodphiev(1,1,i,j), 1_c_int, Ka(1,1), 1_c_int))/(-2.0_c_double)
-          !dlikdphi(i,j)=dot_product(Fax0, - matmul(dodphiev(:,:,i,j), za + Fax0/(2.0_c_double))&
-          !     + dgamdphiev(:,i,j)) &
-          !     + (dot_product(za, matmul(dodphiev(:,:,i,j), za) - 2.0_c_double * dgamdphiev(:,i,j)) &
-          !     + sum(dodphiev(:,:,i,j) * Ka) ) / (-2.0_c_double)
+!          dlikdphi(i,j)=dot_product(Fax0, - matmul(dodphiev(:,:,i,j), za + Fax0/(2.0_c_double))&
+!               + dgamdphiev(:,i,j)) &
+!               + (dot_product(za, matmul(dodphiev(:,:,i,j), za) - 2.0_c_double * dgamdphiev(:,i,j)) &
+!               + sum(dodphiev(:,:,i,j) * Ka) ) / (-2.0_c_double)
        enddo
     enddo
     zaFax02 = Fax0 + za
     dlikdw  = dcdwev
     call dgemv('T',ksb,ksa,1.0_c_double,dgamdwev,ksb,zaFax02,1_c_int,-0.5_c_double,dlikdw,1_c_int)
-    !dlikdw(:) = matmul(transpose(dgamdwev), Fax0 + za) - dcdwev/(2.0_c_double)
+!    dlikdw(:) = matmul(transpose(dgamdwev), Fax0 + za) - dcdwev/(2.0_c_double)
     deallocate(tmpkscksb, Fax0, zaFax02, tmpksb1, tmpksbksb)
   end subroutine
 
