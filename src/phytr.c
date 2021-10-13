@@ -44,6 +44,12 @@
 //#define __ATOMIC_WRITE__
 //#endif
 
+/* Per thread stack's length for walking the tree, allocated on the heap.
+   If integers are 4 bytes then expect the program to malloc about
+      (n_thread+1) * PTSTACKLEN * 20 bytes.
+ */
+#define PTSTACKLEN (50*1024*4)
+
 /* Struct that represents the data carried by a node. Pointers will be to the heap.
    Invariant:  1. ndat for the global root exists, fields are allocated, but has no meaning.
                2. x is non-null if and only if the node associated with it is a tip
@@ -989,7 +995,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 			/* If it's a tip then invVLsOPhi isn't defined. */
 			dfqk_mmp1_(dfqk1new_ch, p->ndat.H, p->ndat.HPhi, w, p->ndat.a, p->ndat.Lamb,
 				   p->ndat.invV, p->u.hnbk.u.hsbkgen.invVLsOPhi, &(p->ndat.ku), &(t->ndat.ku));
-			if (!(stdesc = malloc(sizeof(*stdesc) * 50*1024*4))) {
+			if (!(stdesc = malloc(sizeof(*stdesc) * PTSTACKLEN))) {
 				deldfqk(dfqk1new_ch);
 				free(dfqk1new_ch);
 				goto MEMFAIL;
@@ -1017,7 +1023,7 @@ DOWNDESC:
 					tndown_(curdesc.dfqk1_ch, curdesc.n->ndat.HPhi, curdesc.n->ndat.a, &(curdesc.kv),
 						&(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1new_ch);
 					for (curdesc.p = curdesc.n->chd; curdesc.p; curdesc.p = curdesc.p->nxtsb) {
-						if (j >= 50*1024*4)             goto STACKFAIL;
+						if (j >= PTSTACKLEN)             goto STACKFAIL;
 						stdesc[j++] = curdesc;
 						curdesc.kv=curdesc.n->ndat.ku;  curdesc.dfqk1_ch=curdesc.dfqk1new_ch;
 						curdesc.n =curdesc.p;           curdesc.p=NULL;
@@ -1364,8 +1370,8 @@ int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk,
 	K = NULL;
 	dfqk1_ch = NULL;
 	dfqk1new_ch = NULL;
-	if (!(stglob = malloc(sizeof(*stglob) * 50*1024*4))) goto MEMFAIL;
-	memset(stglob, 0, sizeof(*stglob) * 50*1024*4);
+	if (!(stglob = malloc(sizeof(*stglob) * PTSTACKLEN))) goto MEMFAIL;
+	memset(stglob, 0, sizeof(*stglob) * PTSTACKLEN);
 	curglob.kv = parent->ndat.ku;
 	curglob.m = m; curglob.gbk = gbk;
 	stglob[0].m = parent;	/* Artificially push the parent into the stack, since the parent here must be a direct child
@@ -1540,7 +1546,7 @@ UPDESC:
 	a_new->siz = curglob.m->ndat.ku;
 	a_new->dat = curglob.m->ndat.a;
 	for (curglob.v = curglob.m->chd; curglob.v; curglob.v = curglob.v->nxtsb) {
-		if (i >= 50*1024*4)             goto STACKFAIL;
+		if (i >= PTSTACKLEN)             goto STACKFAIL;
 		stglob[i++] = curglob;
 		curglob.kv = curglob.m->ndat.ku; curglob.m=curglob.v;  curglob.gbk = curglob.gbk_new;
 		goto DOWNGLOB;
