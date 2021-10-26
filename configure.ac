@@ -37,14 +37,14 @@ RSAFEFFLAGS=`"${RBIN}" CMD config SAFE_FFLAGS`
 ac_pkg_openmp=no
 if test -n "${OPENMP_CFLAGS}"; then
   AC_LANG_CONFTEST([AC_LANG_SOURCE([[
+    #include <omp.h>
     #include <R.h>
     #include <Rinternals.h>
-    #include <omp.h>
     #include <stdlib.h>
     #include <string.h>
     extern void fort_blastest_(int*, double*, double*, double*);
     static unsigned int g_seed = 12345U;
-    static int siz = 250, nloops = 1000, correct = 1, *ret;
+    static int siz = 250, nloops = 700, correct = 1, *ret;
     static double *Ac = 0;
     #pragma omp threadprivate(Ac)
     void myrand(double *x) {
@@ -146,20 +146,46 @@ end module
   "$RBIN" CMD SHLIB conftest_c.c conftest.f90 -o conftest.so 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && "$RBIN" --vanilla -q -e "dyn.load(paste('conftest',.Platform\$dynlib.ext,sep='')); quit(save='no', status=.Call('rblastest_ABCDE'), runLast=FALSE)" 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && ac_pkg_openmp=yes
   AC_MSG_RESULT([${ac_pkg_openmp}])
 fi
-if test "${ac_pkg_openmp}" = no; then
-  if test "${OPENMP_CFLAGS}"; then
-    AC_MSG_WARN([OpenMP works on your C compiler but your default BLAS obtained by "R CMD config BLAS_LIBS" has failed the thread-safety test. Turned off OpenMP multi-threading.])
-  else
-    AC_MSG_WARN([OpenMP does not work with your C compiler. Turned off OpenMP multi-threading.])
-  fi
+
+ac_odsc=no
+AC_MSG_CHECKING([whether we are on Oracle C compiler])
+## Oracle Developer Studio on Solaris fails with gFortran...
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,[
+#ifndef __SUNPRO_C
+  choke me
+#endif
+  ])], [ac_odsc=yes])
+AC_MSG_RESULT([${ac_odsc}])
+
+
+if test "${ac_odsc}" = yes; then
   PRAG1="#undef __PRAGMA__"
   PRAG2="#define __PRAGMA__(x)"
+  OMPFLAGS="-xopenmp=none"
+  XTRA_CFLAGS="-xO1"
 else
-  PRAG1=""
-  PRAG2=""
+  if test "${ac_pkg_openmp}" = no; then
+    if test "${OPENMP_CFLAGS}"; then
+      AC_MSG_WARN([OpenMP works on your C compiler but your default BLAS obtained by "R CMD config BLAS_LIBS" has failed the thread-safety test. Turned off OpenMP multi-threading.])
+    else
+      AC_MSG_WARN([OpenMP is turned off manually or it does not work with your C compiler. Turning off OpenMP multi-threading.])
+    fi
+    PRAG1="#undef __PRAGMA__"
+    PRAG2="#define __PRAGMA__(x)"
+    OMPFLAGS=""
+    XTRA_CFLAGS=""
+  else
+    PRAG1=""
+    PRAG2=""
+    OMPFLAGS='$(SHLIB_OPENMP_CFLAGS)'
+    XTRA_CFLAGS=""
+  fi  
 fi
+
 AC_SUBST(MYPRAGMA1, [${PRAG1}])
 AC_SUBST(MYPRAGMA2, [${PRAG2}])
-AC_CONFIG_FILES([src/my_pragma.h])
+AC_SUBST(OMPFLAGS, [${OMPFLAGS}])
+AC_SUBST(XTRA_CFLAGS, [${XTRA_CFLAGS}])
+AC_CONFIG_FILES([src/my_pragma.h src/Makevars])
 AC_OUTPUT
 

@@ -1,5 +1,24 @@
 /* -*- tab-width: 8; indent-tabs-mode: t; -*- */
 
+/* Microsoft had only added support to the C99 _Pragma() in 2020 summer. For older
+   MS compilers we need __pragma(). */
+#ifdef _OPENMP
+#ifdef _MSC_VER
+#define __PRAGMA__ __pragma
+#else
+#define __PRAGMA__ _Pragma
+#endif
+#include"my_pragma.h"
+#else
+#define __PRAGMA__(x)
+#endif
+
+/* If including omp.h, include it AFTER Rinternals.h, because
+   Rinternals.h defines a macro called match to Rf_match and
+   Intel 2021 wants to expand this macro into #pragma omp begin declare variant,
+   which is written in Intel's version of omp.h. */
+/* #include<omp.h> */
+
 #include<R.h>
 #include<stdlib.h>
 #include<stdio.h>
@@ -7,26 +26,11 @@
 #include<Rinternals.h>
 #include<Rmath.h>
 
-/* Microsoft had only added support to the C99 _Pragma() in 2020 summer. For older
-   MS compilers we need __pragma(). */
-#ifdef _OPENMP
-#ifdef _MSC_VER
-#define __PRAGMA__ __pragma
-#else
-//#if defined(sun) || defined(__sun)
-//#define __PRAGMA__(x)
-//#else
-#define __PRAGMA__ _Pragma
-//#endif
-#endif
-#endif
 
-#include"my_pragma.h"
 
 /* Old versions of OpenMP (for example in Open64 compilers) doesn't support the atomic
    read/write with pointer assignments. In that case we resort to locking the entire
    piece of code. */
-//#if !(defined(sun) || defined(__sun))
 #ifdef _OPENMP
 #if _OPENMP > 201400
 #define __ATOMIC_READ__  __PRAGMA__("omp atomic read")
@@ -39,10 +43,6 @@
 #define __ATOMIC_READ__
 #define __ATOMIC_WRITE__
 #endif
-//#else
-//#define __ATOMIC_READ__
-//#define __ATOMIC_WRITE__
-//#endif
 
 /* Per thread stack's length for walking the tree, allocated on the heap.
    If integers are 4 bytes then expect the program to malloc about
@@ -367,39 +367,43 @@ TESTAGAIN:
 
 void settip(struct node *t, SEXP Rxtab) {
 	void *tmp;
+	struct node *p;
 	if (t->id < length(Rxtab)) { 
 		if (!(tmp = realloc(t->ndat.x, t->ndat.ku * sizeof(double)))) goto MEMFAIL;
 		memcpy((t->ndat.x=tmp), REAL(VECTOR_ELT(Rxtab, t->id)), t->ndat.ku * sizeof(double));
-	} else for (struct node *p = t->chd; p; p = p->nxtsb)
+	} else for (p = t->chd; p; p = p->nxtsb)
 		settip(p, Rxtab);
 	return;
 MEMFAIL:
 	error("settip2(): Failed to allocate memory");
 }
 SEXP Rsettip(SEXP Rtr, SEXP Rxtab) {	
-	struct node *t;
+	struct node *t, *p;
 	t = (struct node *)R_ExternalPtrAddr(Rtr);
 	t->u.rbk.xavail = 1;
-	for (struct node *p = t->chd; p; p=p->nxtsb)
+	for (p = t->chd; p; p=p->nxtsb)
 		settip(p, Rxtab);
 	return Rtr;
 }
 int fillndesc(struct node *t) {
+	struct node *p;
 	if (!(t->chd)) return 1;
-	for (struct node *p=t->chd; p; p=p->nxtsb)
+	for (p=t->chd; p; p=p->nxtsb)
 		t->ndat.ndesc += fillndesc(p);
 	return 1 + t->ndat.ndesc;
 }
 
 void vwphi_paradr2(struct node *t, int *adtab, int ldt) {
+	struct node *p;
 	adtab[t->id] = t->u.hnbk.Phi+1;
 	adtab[t->id+ldt] = (int)(t->u.hnbk.V+((t->ndat.ku)*(t->ndat.ku+1))/2);
-	for (struct node *p=t->chd; p; p=p->nxtsb)
+	for (p=t->chd; p; p=p->nxtsb)
 		vwphi_paradr2(p, adtab, ldt);
 }
 void vwphi_paradr(struct node *t, int *adtab, int ldt) {
+	struct node *p;
 	adtab[t->id] = NA_INTEGER; adtab[t->id+ldt] = NA_INTEGER;
-	for (struct node *p=t->chd; p; p=p->nxtsb) vwphi_paradr2(p, adtab, ldt);
+	for (p=t->chd; p; p=p->nxtsb) vwphi_paradr2(p, adtab, ldt);
 }
 SEXP Rvwphi_paradr(SEXP Rt) {
 	struct node *t = R_ExternalPtrAddr(Rt);
@@ -497,6 +501,7 @@ SEXP R_clone_tree(SEXP Rctree) {
 }
 
 size_t difftmp(struct node *t, void *wsp, int kv) {
+	struct node *p;
 	size_t nbytes=0;
 	if (kv != 0) {
 #define KU (t->ndat.ku)
@@ -507,17 +512,19 @@ size_t difftmp(struct node *t, void *wsp, int kv) {
 		dcalloc(t->ndat.dlikdv, KU*(KU+1+kv), MEMFAIL);
 		t->ndat.dlikdw   = t->ndat.dlikdv + KU*KU;
 		t->ndat.dlikdphi = t->ndat.dlikdw + KU;
-#undef MAKE
+#undef MAKETEMP
 		dzero(wsp, 2*(KU) + 3*(KU)*(KU) + 2*(KU)*kv + (KU)*(KU)*kv + (KU)*kv*kv + (KU)*(KU)*kv*kv + (KU)*kv*kv*kv);
 	}
 #undef KU
-	for (struct node *p = t->chd; p; p = p->nxtsb) nbytes += difftmp(p, (char*)wsp+nbytes, t->ndat.ku);
+	for (p = t->chd; p; p = p->nxtsb)
+		nbytes += difftmp(p, (char*)wsp+nbytes, t->ndat.ku);
 	return nbytes;
 MEMFAIL:
 	RUPROTERR(("difftmp: failed to allocate memory"));
 }
 
 size_t hesstmp(struct node *t, void *wsp, int kv) {
+	struct node *p;
 	size_t nbytes=0;
 #define KU (t->ndat.ku)
 #define MAKE(Y,SIZ)  t->ndat.Y=(void*)((char*)wsp+nbytes); nbytes+=(SIZ)*sizeof(double);
@@ -530,7 +537,7 @@ size_t hesstmp(struct node *t, void *wsp, int kv) {
 	dzero(wsp, 3*KU*KU+ 2*KU*KU + 1);
 #undef MAKE
 #undef KU
-	for (struct node *p = t->chd; p; p = p->nxtsb) nbytes += hesstmp(p, (void*)((char*)wsp+nbytes), t->ndat.ku);
+	for (p = t->chd; p; p = p->nxtsb) nbytes += hesstmp(p, (void*)((char*)wsp+nbytes), t->ndat.ku);
 	return nbytes;
 }
 
@@ -577,7 +584,7 @@ size_t getvwphi_liststr(SEXP Rlist, struct node *t, int kv, double **V, double *
 }
 
 /* get_VwPhi */
-/* Need to return -1 if failed */
+/* Need to return 0 if failed? */
 size_t getvwphi_vec(SEXP Rvec, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	double *par;
 	(void) lwsp;
@@ -618,18 +625,21 @@ size_t hessdifftmp_node2siz (struct node *t, int kv) {
 }
 
 void stack_siz (struct node *t, int kv, size_t swsp, size_t *lwsp, fn_node2siz nbytes) {
+	struct node *p;
 	size_t N;
 	if(*lwsp < (swsp += (N = nbytes(t, kv)))) *lwsp+=N;
-	for (struct node *p = t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, swsp, lwsp, nbytes);
+	for (p = t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, swsp, lwsp, nbytes);
 }
 void stack_siz_fixed (struct node *t, size_t swsp, size_t *lwsp, size_t nbytes) {
+	struct node *p;
 	size_t N;
 	if(*lwsp < (swsp += (N = nbytes))) *lwsp+=N;
-	for (struct node *p = t->chd; p; p=p->nxtsb) stack_siz_fixed(p, swsp, lwsp, nbytes);
+	for (p = t->chd; p; p=p->nxtsb) stack_siz_fixed(p, swsp, lwsp, nbytes);
 }
 void sumnode_siz (struct node *t, int kv, size_t *lwsp, fn_node2siz nbytes) {
+	struct node *p;
 	*lwsp += nbytes(t, kv);
-	for (struct node *p = t->chd; p; p=p->nxtsb) sumnode_siz(p, t->ndat.ku, lwsp, nbytes);
+	for (p = t->chd; p; p=p->nxtsb) sumnode_siz(p, t->ndat.ku, lwsp, nbytes);
 }
 void sumnode_siz_fixed (struct node *t, int kv, size_t *lwsp, size_t nbytes) {
 	*lwsp += (1+t->ndat.ndesc) * nbytes;
@@ -815,13 +825,16 @@ void grad(struct node *t, double *x0) {
 	__PRAGMA__("omp parallel")
 	{
 		__PRAGMA__("omp master")
-		for (struct node *p = t->chd; p; p = p->nxtsb) {
-			/* The direct children of the root requires different treatment. */
-			ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
-			      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
-			      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
-			for (struct node *q = p->chd; q; q = q->nxtsb)
-				gradwk(q, p, t, x0, bk, t->ndat.ku);
+		{
+			struct node *p, *q;
+			for (p = t->chd; p; p = p->nxtsb) {
+				/* The direct children of the root requires different treatment. */
+				ddcr_(&(t->ndat.ku), &(p->ndat.ku), x0, p->ndat.dodv, p->ndat.dodphi,
+				      p->ndat.dgamdv, p->ndat.dgamdw, p->ndat.dgamdphi, p->ndat.dcdw, p->ndat.dcdv,
+				      p->ndat.dddv, p->ndat.dlikdv, p->ndat.dlikdw, p->ndat.dlikdphi);
+				for (q = p->chd; q; q = q->nxtsb)
+					gradwk(q, p, t, x0, bk, t->ndat.ku);
+			}
 		}
 		__PRAGMA__("omp barrier")
 	}
@@ -833,6 +846,7 @@ void gradwk(struct node *a, struct node *b, struct node *c,
 	                  2. a is neither the global root nor its direct children
 			  3. c → b → a
 			  4. bk contains F,k, and z of parent */
+	struct node *p;
 	struct diffbk newbk;
 	mkdiffbk(&newbk, kr, b->ndat.ku);
 	fzkdown_(bk.F, bk.z, bk.K, b->ndat.HPhi, b->ndat.a, b->ndat.Lamb, x0,
@@ -840,7 +854,7 @@ void gradwk(struct node *a, struct node *b, struct node *c,
 		 a->ndat.dodv, a->ndat.dodphi, a->ndat.dgamdv, a->ndat.dgamdw, a->ndat.dgamdphi,
 		 a->ndat.dcdw, a->ndat.dcdv, a->ndat.dddv, a->ndat.dlikdv, a->ndat.dlikdw,
 		 a->ndat.dlikdphi, newbk.F, newbk.z, newbk.K);
-	for (struct node *p = a->chd; p; p = p->nxtsb){
+	for (p = a->chd; p; p = p->nxtsb){
 		__PRAGMA__("omp task firstprivate(p,a,b,x0,newbk,kr) if (p->ndat.ndesc >=40)")
 		gradwk(p, a, b, x0, newbk, kr);
 	}
@@ -849,8 +863,9 @@ void gradwk(struct node *a, struct node *b, struct node *c,
 }
 
 int maxdim(struct node *t) {    /* Return maximum no. of dimen. of traits in the tree */
+	struct node *p;
 	int tmp, curmax = t->ndat.ku;
-	for (struct node *p=t->chd; p; p=p->nxtsb)  curmax = (curmax<(tmp=maxdim(p))) ? tmp : curmax;
+	for (p=t->chd; p; p=p->nxtsb)  curmax = (curmax<(tmp=maxdim(p))) ? tmp : curmax;
 	return curmax;
 }
 void freellst(struct llst *l) {
@@ -876,12 +891,14 @@ FREEL:
 void fillhnbk_wk (struct node *t, SEXP VwPhi_L, int kv, fn_getvwphi get_VwPhi, void *wsp, size_t *swsp, size_t lwsp);
 size_t fillhnbk (struct node *t, SEXP VwPhi_L, fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp) {
 	size_t orig_swsp = swsp;
-	for (struct node *p = t->chd; p; p = p->nxtsb)
+	struct node *p;
+	for (p = t->chd; p; p = p->nxtsb)
 		fillhnbk_wk(p, VwPhi_L, t->ndat.ku, get_VwPhi, wsp, &swsp, lwsp);
 	return swsp - orig_swsp;
 }
 void fillhnbk_wk (struct node *t, SEXP VwPhi_L, int kv, fn_getvwphi get_VwPhi, void *wsp, size_t *swsp, size_t lwsp) {
 	double *w, *Phi, *tmp;
+	struct node *p;
 	get_VwPhi(VwPhi_L, t, kv, NULL, &w, &Phi, (char*)wsp+*swsp, lwsp-*swsp);
 #define KU (t->ndat.ku)
 	if (t->ndat.x) {
@@ -902,7 +919,7 @@ void fillhnbk_wk (struct node *t, SEXP VwPhi_L, int kv, fn_getvwphi get_VwPhi, v
 			    &kv, &KU, t->u.hnbk.u.hsbkgen.invVLsO, t->u.hnbk.u.hsbkgen.invVLsOPhi,
 			    t->u.hnbk.u.hsbkgen.VmVLV, t->u.hnbk.u.hsbkgen.invVLb, t->u.hnbk.u.hsbkgen.Hto);
 	}
-	for (struct node *p = t->chd; p; p = p->nxtsb)
+	for (p = t->chd; p; p = p->nxtsb)
 		fillhnbk_wk(p, VwPhi_L, KU, get_VwPhi, (char*)wsp, swsp, lwsp);
 #undef KU
 }
@@ -915,6 +932,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 	/* Pre-condition: t is the global root. */
 	struct hessglbbk gbk;	/* Notice this is on the stack. */
 	int ictx,i,j,m,n, wkret;
+	struct node *p;
 
 #define NHESS (((t->u.rbk.nparam) * ((t->u.rbk.nparam)+1))/2)
 	if (!dir) {		/* If dir is non-null then extrmem holds a ndir*ndir matrix, already allocated in R-managed memory */
@@ -941,7 +959,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 	
 #undef NPARAM
 	swsp += fillhnbk(t, VwPhi_L, get_VwPhi, wsp, swsp, lwsp);
-	for (struct node *p = t->chd; p; p = p->nxtsb) { /* The direct children of the root needs special treatment */
+	for (p = t->chd; p; p = p->nxtsb) { /* The direct children of the root needs special treatment */
 		double *w;
 		get_VwPhi(VwPhi_L, p, t->ndat.ku, NULL, &w, NULL, (char*)wsp+swsp, lwsp-swsp);
 		ictx = IVV;
@@ -990,6 +1008,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 				struct dfdqdk *dfqk1new_ch;
 			} *stdesc, curdesc;
 			int j;
+			struct node *n;
 			if (! (dfqk1new_ch = calloc(DFQKSIZ,1)))                                                  goto MEMFAIL;
 			if ( !allocdfqk(t->ndat.ku, p->ndat.ku, p->ndat.ku, p->ndat.ku, t->ndat.ku, dfqk1new_ch)) goto MEMFAIL;
 			/* If it's a tip then invVLsOPhi isn't defined. */
@@ -1000,7 +1019,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 				free(dfqk1new_ch);
 				goto MEMFAIL;
 			}
-			for (struct node *n = p->chd; n; n = n->nxtsb) {
+			for (n = p->chd; n; n = n->nxtsb) {
 				curdesc.kv=p->ndat.ku;  curdesc.n=n;  curdesc.dfqk1_ch = dfqk1new_ch;
 				j = 0;
 DOWNDESC:
@@ -1061,7 +1080,8 @@ UPDESC:
 			__PRAGMA__("omp master")
 			{
 				int interrupted = 0;
-				for (struct node *q = p->chd; q; q = q->nxtsb) {
+				struct node *q;
+				for (q = p->chd; q; q = q->nxtsb) {
 					wkret=hessglobwk(q, p, &gbk, x0, t, VwPhi_L, get_VwPhi, wsp, swsp, lwsp, &interrupted, extrmem, dir, ndir);
 					if (wkret || interrupted) break;
 				}
@@ -1072,7 +1092,8 @@ UPDESC:
 			if (dir) {
 				__PRAGMA__("omp critical")
 				{
-					for (int k=0; k<ndir*ndir; ++k) {
+					int k;
+					for (k=0; k<ndir*ndir; ++k) {
 						extrmem[k] = extrmem[k] + thrpv_bilinmat[k];
 					}
 				}
@@ -1131,14 +1152,14 @@ MEMFAIL:
 	RUPROTERR(("llstcpy(): Error allocating memory."));
 }
 void llstptrcpy(struct llstptr **dst, const struct llstptr *src) {
-	for (;;) {
-		*dst = malloc(sizeof(struct llstptr));
-		if (! *dst) goto MEMFAIL;
-		memcpy(*dst, src, sizeof(struct llstptr));
-		if (! src->nxt) return;
-		dst = &((*dst)->nxt);
-		src = src->nxt;
-	}
+AGAIN:
+	*dst = malloc(sizeof(struct llstptr));
+	if (! *dst) goto MEMFAIL;
+	memcpy(*dst, src, sizeof(struct llstptr));
+	if (! src->nxt) return;
+	dst = &((*dst)->nxt);
+	src = src->nxt;
+	goto AGAIN;
 MEMFAIL:
 	RUPROTERR(("llstptrcpy(): Error allocating memory."));
 }
@@ -1166,7 +1187,8 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 	      but at least the numerical output is correct and precise.
 
 	*/
-	for (int k=0; k < pv_i; ++k) {          /* Now run the recursion for each k (for each beta, that is) */
+	int k,j;
+	for (k=0; k < pv_i; ++k) {          /* Now run the recursion for each k (for each beta, that is) */
 		struct {                        /* States of the inner stack */
 			int kv;
 			struct node *n, *p;
@@ -1179,13 +1201,14 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 			int knv;
 			size_t lblk;
 		} *pushback;
-		size_t lpushback; size_t pushbackptr;
-		double *hessmem; size_t lhessmem; size_t lblk; size_t hessptr;
+		size_t lpushback, pushbackptr;
+		double *hessmem; size_t lhessmem, lblk, hessptr;
 		int q, yes;
 		struct node *z;
 		size_t swsp_a, lwsp_a;
 		void *wsp_a = NULL;
-		int c, b;
+		int c;
+		size_t b;
 
 		lpushback = 0; pushbackptr = 0;
 		lhessmem = 0; lblk = 0; hessptr = 0;
@@ -1258,7 +1281,7 @@ DOWNALPHA:
 					yes = *interrupted;
 				if (yes) {
 					free(wsp_a);
-					for (int j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
+					for (j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
 					free(pv_starters);
 					free(pv_ancestry);
 					return;
@@ -1335,7 +1358,7 @@ DOWNALPHA:
 #undef KMU
 		free(wsp_a);
 	}/* for each k */
-	for (int j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
+	for (j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
 	free(pv_starters);
 	free(pv_ancestry);
 }
@@ -1682,7 +1705,7 @@ void dndgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, dou
 	size_t nbytes;
 	double *v, *w, *phi, *c1, *d1, *gam1, *o1;
 
-	if ((nbytes=get_VwPhi(VwPhi_L, t, kv, &v, &w, &phi, (char*)wsp+swsp, lwsp-swsp)) < 0) {
+	if ((nbytes=get_VwPhi(VwPhi_L, t, kv, &v, &w, &phi, (char*)wsp+swsp, lwsp-swsp)) == 0) {
 		*info = -99;
 		return;
 	}
@@ -1715,7 +1738,7 @@ void hgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, doubl
 	struct node *p;
 	double *v, *w, *phi, *d1;
 	size_t nbytes;
-	if ((nbytes=get_VwPhi(VwPhi_L, t, kv, &v, &w, &phi, (char*)wsp+swsp, lwsp-swsp)) < 0) {
+	if ((nbytes=get_VwPhi(VwPhi_L, t, kv, &v, &w, &phi, (char*)wsp+swsp, lwsp-swsp)) == 0) {
 		*info = -99;
 		return;
 	}
@@ -1795,9 +1818,10 @@ int chk_VwPhi_listnum2(struct node *t, SEXP VwPhi_L, int kv, int *mode, int *err
  */
 int chk_VwPhi_listnum(struct node *t, SEXP VwPhi_L, int *mode, int *errcode) {
 	int ans;
+	struct node *p;
 	if (! isNull(VECTOR_ELT(VwPhi_L, t->id))) return -(t->id);
 	*mode = -1;
-	for (struct node *p = t->chd; p; p=p->nxtsb) 
+	for (p = t->chd; p; p=p->nxtsb) 
 		if ((ans=chk_VwPhi_listnum2(p, VwPhi_L, t->ndat.ku, mode, errcode)) != 1)
 			return ans;
 	return 1;
@@ -2010,8 +2034,8 @@ SEXP Rxavail(SEXP Rtr) {
 
 SEXP Rtagreg(SEXP p, SEXP Rnnode, SEXP regspec);
 SEXP Rdeschpos(SEXP tr, SEXP Rx, SEXP Ry);
-void tagreg2(struct node *t, int nnode, int *v, size_t lenv, int *res, int curreg);
-void tagreg(struct node *t, int nnode, int *v, size_t lenv, int *res);
+void tagreg2(struct node *t, int nnode, int *v, int lenv, int *res, int curreg);
+void tagreg(struct node *t, int nnode, int *v, int lenv, int *res);
 void findhpos_wk(struct node *t, int kv, long target, int *nodeid, int *vwphi);
 
 /* Only the id and topology of the tree is used. Every other things are not even read. */
@@ -2023,19 +2047,21 @@ SEXP Rtagreg(SEXP p, SEXP Rnnode, SEXP regspec) {
 	int *v;
 	int nnode;
 	size_t lenv;
+	int ilenv;
 	SEXP res;
 	t = (struct node *)R_ExternalPtrAddr(p);
 	v = INTEGER(regspec);
 	lenv = length(regspec);
+	ilenv = (int) lenv; /* If the user passes in 2.147 billions of regions it will fail... */
 	nnode = INTEGER(Rnnode)[0];
 	res = PROTECT(allocVector(INTSXP, nnode));
 	protdpth = 1;
-	tagreg(t, nnode, v, lenv, INTEGER(res));
+	tagreg(t, nnode, v, ilenv, INTEGER(res));
 	UNPROTECT(1);
 	protdpth = -1;
 	return res;
 }
-void tagreg(struct node *t, int nnode, int *v, size_t lenv, int *res) {
+void tagreg(struct node *t, int nnode, int *v, int lenv, int *res) {
 	int j = 0;
 	iset(res, -1, nnode);
 	v[lenv-1] = t->id+1;
@@ -2045,7 +2071,7 @@ void tagreg(struct node *t, int nnode, int *v, size_t lenv, int *res) {
 	for (t = t->chd; t; t = t->nxtsb) tagreg2(t, nnode, v, lenv, res, j);
 	return;
 }
-void tagreg2(struct node *t, int nnode, int *v, size_t lenv, int *res, int curreg) {
+void tagreg2(struct node *t, int nnode, int *v, int lenv, int *res, int curreg) {
 	int j = 0;
 	v[lenv-1] = t->id+1;
 	while (v[j++] != t->id+1);
@@ -2283,7 +2309,7 @@ int chkusrhess_VwOrPhi(SEXP Robj, int VwOrPhi, int nparregime, int ku, int kv) {
 	case 1:			/* w */
 		ld = ku;              break;
 	case 0:			/* Phi */
-		ld = ku*kv;           break;
+		ld = ku*kv;
 	}
 	Rdim = getAttrib(Robj, R_DimSymbol);
 	return (TYPEOF(Robj) == REALSXP
@@ -2447,8 +2473,6 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			break;
 		case 'L':	/* Lower triangular  */
 			++cnt_L;
-			break;
-		++i;
 		}
 	}
 	if (i == 0) error("Rparamrestrict(): parameter restriction does not contain any 'M', 'v', or 'L'.");
@@ -2626,18 +2650,20 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
-		case 4: 	/* Expects input argument for 'L' */
+		case 4: /* Expects input argument for 'L' */
 			if (cmdstr[i] == 'k') { /* keep the same */
 				if (iin+(k*(k+1))/2 > len_par) {
 					UNPROTECT(1);
-					error("Passed in parameter vector is too short", i, cmdstr[i]);
+					error("Passed in parameter vector is too short");
 				}
-				for (int j=0; j<(k*(k+1))/2; ++j) out[iout++] = in[iin++];
+				for (int j=0; j<(k*(k+1))/2; ++j) {
+					out[iout++] = in[iin++];
+				}
 				curstate = 1;
 			} else if (cmdstr[i] == 'd') { /* Diagonal restriction of lower-triangular matrices */
 				if (iin+k > len_par) {
 					UNPROTECT(1);
-					error("Passed in parameter vector is too short", i, cmdstr[i]);
+					error("Passed in parameter vector is too short");
 				}
 				diag2ltri_(in+iin,&k,out+iout);
 				iin  += k;
@@ -2673,7 +2699,8 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
-			break;
+			// THIS BREAK STATEMENT WILL BUG OUT A BIG-NAME COMMERCIAL COMPILER.
+			//break;
 		}
 		++i;
 	}
@@ -2683,7 +2710,8 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			error("Passed in parameter vector is too long (=%d) compared to what the command string specifies (=%d)",
 			      len_par, iin);
 		if (iin > len_par)
-			error("Passed in parameter vector is too short (=%d) compared to what the command string specifies (=%d)",
+			error("Passed in parameter vector is "
+			      "too short (=%d) compared to what the command string specifies (=%d)",
 			      len_par, iin);
 	}
 	return Rout;
@@ -2719,8 +2747,6 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 			break;
 		case 'L':	/* Lower triangular  */
 			++cnt_L;
-			break;
-		++i;
 		}
 	}
 	if (i == 0) error("parameter restriction does not contain any 'M', 'v', or 'L'.");
@@ -2878,7 +2904,6 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
-			break;
 		}
 		++i;
 	}
@@ -2931,8 +2956,6 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			break;
 		case 'L':	/* Lower triangular  */
 			++cnt_L;
-			break;
-		++i;
 		}
 	}
 	if (i == 0) error("parameter restriction does not contain any 'M', 'v', or 'L'.");
@@ -3191,7 +3214,6 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			} else {
 				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
 			}
-			break;
 		}
 		++i;
 	}

@@ -299,7 +299,7 @@ grad_glinv_gauss_ = function (mod, par, lik=FALSE, ...) {
 #' @export
 hess = function (mod, ...) UseMethod('hess')
 
-#' Compute the log-likelihood Hessian of full  GLInv models in the underlying Gaussian parameters
+#' Compute the log-likelihood Hessian of full GLInv models in the underlying Gaussian parameters
 #'
 #' The \code{hess.glinv_gauss} function computes the log-likelihood Hessian of a \code{glinv_gauss} models.
 #' 
@@ -878,7 +878,7 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
                                     control= list_set_default(control,
                                                               list(trace = T,
                                                                    maxit = 500000,
-                                                                   factr = 600000)))
+                                                                   factr = 500000)))
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              names(r)[which(names(r) == 'grad')]  = 'score'
@@ -928,7 +928,8 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
              r = c(r, list(score = grad(mod)(r[['mlepar']])))
              r
            }
-  names(result$mlepar) = names(parinit)
+  names(result[['mlepar']]) = names(parinit)
+  result[['loglik']]       = -result[['loglik']]
   result
 }
 
@@ -994,8 +995,12 @@ varest.glinv = function (mod,
       stop('Invalid argument: `fitted`')
   } else
     mlepar = fitted
+  if (class(mod) != 'glinv')
+    stop('The mod parameter must be of class glinv')
   if (length(mlepar) != mod$nparams)
-    stop(sprintf("Your model should have %d parameters but I got %d", mod$nparams, length(mlepar)))
+    stop(sprintf('Your model should have %d parameters but I got %d', mod$nparams, length(mlepar)))
+  if (mode(mlepar) != 'numeric')
+    stop('The maximum likelihood parameters are not numeric?')
   jac = if (is.null(mod$parjacs))
           function (x) c(do.call(numDeriv::jacobian, c(list(mod$gaussparams_fn, x), numDerivArgs)))
         else
