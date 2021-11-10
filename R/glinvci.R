@@ -878,7 +878,7 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
                                     control= list_set_default(control,
                                                               list(trace = T,
                                                                    maxit = 500000,
-                                                                   factr = 500000)))
+                                                                   factr = 250000)))
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              names(r)[which(names(r) == 'grad')]  = 'score'

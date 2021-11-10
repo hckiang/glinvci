@@ -155,9 +155,6 @@ struct dfdqdk {   /* Passed into Fortran */
 };
 #define DFQKSIZ sizeof(struct dfdqdk)
 
-static int protdpth = -1;    /* Keeps track of the R GC PROTECT() depth. */
-#define RUPROTERR(ARG) { if (protdpth>0) { UNPROTECT(protdpth); protdpth=-1; }; \
-		         error ARG; }
 /*
   We store the Hessian as a uplo='L' format. It's simply a storage scheme and
   users won't see this at all.
@@ -429,7 +426,6 @@ SEXP Rnewnode(SEXP edges, SEXP xtab, SEXP dimtab) {
 	int j;
 	struct node *p, *t;
 	
-	protdpth = -1;
 	e = INTEGER(edges);
 	n = length(edges) / 2 + 1;
 	d = INTEGER(dimtab);
@@ -468,9 +464,9 @@ SEXP Rnewnode(SEXP edges, SEXP xtab, SEXP dimtab) {
 	fillndesc(t);
 	return Rwrapnode(t);
 MEMFAIL:
-	RUPROTERR(("Rnewnode(): Failed to allocate memory"));
+	error("Rnewnode(): Failed to allocate memory");
 NRAFAIL:  
-	RUPROTERR(("Rnewnode(): Failed to allocate memory"));
+	error("Rnewnode(): Failed to allocate memory");
 	return R_NilValue;	/* Stop GCC from bitching. */
 }
 
@@ -480,7 +476,7 @@ NRAFAIL:
 struct node *sktrcpywk(struct node *t);
 struct node *sktrcpy(struct node *t) {
 	struct node *tnew;
-	if (!(tnew=newnode(t->id, t->ndat.ku))) RUPROTERR(("sktrcpywk(): Failure allocating memory"));
+	if (!(tnew=newnode(t->id, t->ndat.ku))) error("sktrcpywk(): Failure allocating memory");
 	tnew->u.rbk.nparam =t->u.rbk.nparam;	tnew->u.rbk.xavail =0;
 	tnew->ndat.ndesc   =t->ndat.ndesc;
 	tnew->chd          =sktrcpywk(t->chd);	tnew->nxtsb =sktrcpywk(t->nxtsb);
@@ -489,14 +485,13 @@ struct node *sktrcpy(struct node *t) {
 struct node *sktrcpywk(struct node *t) {
 	struct node *tnew;
 	if (!t) return NULL;
-	if (!(tnew=newnode(t->id, t->ndat.ku))) RUPROTERR(("sktrcpywk(): Failure allocating memory"));
+	if (!(tnew=newnode(t->id, t->ndat.ku))) error("sktrcpywk(): Failure allocating memory");
 	tnew->u.hnbk.Phi=t->u.hnbk.Phi;	tnew->u.hnbk.w   =t->u.hnbk.w;
 	tnew->u.hnbk.V  =t->u.hnbk.V;	tnew->ndat.ndesc =t->ndat.ndesc;
 	tnew->chd = sktrcpywk(t->chd);	tnew->nxtsb = sktrcpywk(t->nxtsb);
 	return tnew;
 }
 SEXP R_clone_tree(SEXP Rctree) {
-	protdpth = -1;
 	return Rwrapnode(sktrcpy((struct node *)R_ExternalPtrAddr(Rctree)));
 }
 
@@ -520,7 +515,7 @@ size_t difftmp(struct node *t, void *wsp, int kv) {
 		nbytes += difftmp(p, (char*)wsp+nbytes, t->ndat.ku);
 	return nbytes;
 MEMFAIL:
-	RUPROTERR(("difftmp: failed to allocate memory"));
+	error("difftmp: failed to allocate memory");
 }
 
 size_t hesstmp(struct node *t, void *wsp, int kv) {
@@ -556,19 +551,33 @@ void deldfqk(struct dfdqdk* D) { free(D->R); }
 
 
 SEXP Rlistelem(SEXP Rlist, const char *key) {
-    SEXP names = getAttrib(Rlist, R_NamesSymbol);
-    int i=0;
-    while (i<length(names) && strcmp(CHAR(STRING_ELT(names,i)), key)) ++i;
-    return (i==length(Rlist)) ? R_NilValue : VECTOR_ELT(Rlist, i);
+    SEXP names;
+    int len, i;
+    i = 0;
+    names  = PROTECT(getAttrib(Rlist, R_NamesSymbol));
+    len    = length(names);
+AGAIN:
+    if (i >= len)                                          goto NOTFOUND;
+    if (!strcmp(CHAR(PROTECT(STRING_ELT(names, i))), key)) goto FOUND;
+    ++i;
+    goto AGAIN;
+NOTFOUND:
+    UNPROTECT(1+i);
+    return R_NilValue;
+FOUND:
+    UNPROTECT(2+i);
+    return VECTOR_ELT(Rlist, i);
 }
 
 size_t getvwphi_listnum(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	SEXP VwPhi;
 	(void)wsp; (void)lwsp;
-	VwPhi = VECTOR_ELT(Rlist, t->id);
-	if (V)	    *V =REAL(VECTOR_ELT(VwPhi, 0));
-	if (w)	    *w =REAL(VECTOR_ELT(VwPhi, 1));
-        if (Phi)  *Phi =REAL(VECTOR_ELT(VwPhi, 2));
+	int nset=1;
+	VwPhi = PROTECT(VECTOR_ELT(Rlist, t->id));
+	if (V)	 { nset++;   *V =REAL(PROTECT(VECTOR_ELT(VwPhi, 0))); }
+	if (w)	 { nset++;   *w =REAL(PROTECT(VECTOR_ELT(VwPhi, 1))); }
+        if (Phi) { nset++; *Phi =REAL(PROTECT(VECTOR_ELT(VwPhi, 2))); }
+	UNPROTECT(nset);
 	return 0;
 }
 
@@ -576,10 +585,12 @@ size_t getvwphi_listnum(SEXP Rlist, struct node *t, int kv, double **V, double *
 size_t getvwphi_liststr(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	SEXP VwPhi;
 	(void)wsp; (void)lwsp;
-	VwPhi = VECTOR_ELT(Rlist, t->id);
-	if (V)	    *V =REAL(Rlistelem(VwPhi,"V"));
-	if (w)	    *w =REAL(Rlistelem(VwPhi,"w"));
-        if (Phi)  *Phi =REAL(Rlistelem(VwPhi,"Phi"));
+	int nset=1;
+	VwPhi = PROTECT(VECTOR_ELT(Rlist, t->id));
+	if (V)	 { nset++;   *V =REAL(PROTECT(Rlistelem(VwPhi,"V")));  }
+	if (w)	 { nset++;   *w =REAL(PROTECT(Rlistelem(VwPhi,"w")));  }
+        if (Phi) { nset++; *Phi =REAL(PROTECT(Rlistelem(VwPhi,"Phi")));}
+	UNPROTECT(nset);
 	return 0;
 }
 
@@ -692,15 +703,15 @@ void ndphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_g
 		switch (info) {
 		case -1:
 			free(wsp);
-			RUPROTERR(("*tcgod(): V is numerically non-positive-definite!"));
+			error("*tcgod(): V is numerically non-positive-definite!");
 		case -2:
 			free(wsp);
-			RUPROTERR(("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!"));
+			error("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!");
 		case 0:
 			break;
 		default:
 			free(wsp);
-			RUPROTERR(("Unknown error from dndgcgod: a bug in the C code?"));
+			error("Unknown error from dndgcgod: a bug in the C code?");
 		};
 	}
 	phygausslik_(c, gam, o, d, x0, &(t->ndat.ku), &k, lik);
@@ -708,7 +719,7 @@ void ndphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_g
 
 	return;
 MEMFAIL:
-	RUPROTERR(("phylik(): Error allocating memory for c, gamma, Omega, Delta. "));
+	error("phylik(): Error allocating memory for c, gamma, Omega, Delta.");
 }
 
 
@@ -731,15 +742,15 @@ void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 		switch (info) {
 		case -1:
 			free(wsp);
-			RUPROTERR(("*tcgod(): V is numerically non-positive-definite!"));
+			error("*tcgod(): V is numerically non-positive-definite!");
 		case -2:
 			free(wsp);
-			RUPROTERR(("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!"));
+			error("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!");
 		case 0:
 			break;
 		default:
 			free(wsp);
-			RUPROTERR(("Unknown error from dndgcgod: a bug in the C code?"));
+			error("Unknown error from dndgcgod: a bug in the C code?");
 		};
 	}
 	phygausslik_(c, gam, o, d, x0, &(t->ndat.ku), &k, lik);
@@ -747,7 +758,7 @@ void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 	free(wsp);
 	return;
 MEMFAIL:
-	RUPROTERR(("dphylik(): Error allocating memory. "));
+	error("dphylik(): Error allocating memory. ");
 }
 
 void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi, double *hessmem, double *dir, int ndir) {
@@ -771,15 +782,15 @@ void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 		switch (info) {
 		case -1:
 			free(wsp);
-			RUPROTERR(("*tcgod(): V is numerically non-positive-definite!"));
+			error("*tcgod(): V is numerically non-positive-definite!");
 		case -2:
 			free(wsp);
-			RUPROTERR(("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!"));
+			error("mergintern_(): Numerically non-positive-definiteness in the Woodbury formula!");
 		case 0:
 			break;
 		default:
 			free(wsp);
-			RUPROTERR(("Unknown error from hgcgod: a bug in the C code?"));
+			error("Unknown error from hgcgod: a bug in the C code?");
 		};
 	}
 	phygausslik_(t->ndat.sc, t->ndat.sgam, t->ndat.so, d, x0, &(t->ndat.ku), &k, lik);
@@ -791,15 +802,15 @@ void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 	case 3:
 		goto MEMFAIL;
 	case 2:
-		RUPROTERR(("hphylik(): The C stack is not large enough for your problem size."));
+		error("hphylik(): The C stack is not large enough for your problem size.");
 	case 1:
-		RUPROTERR(("hphylik(): Computation interrupted by user."));
+		error("hphylik(): Computation interrupted by user.");
 	case 0:
 		;		/* Good. */
 	};
 	return;
 MEMFAIL:
-	RUPROTERR(("hphylik(): Error allocating memory in hphylik()"));
+	error("hphylik(): Error allocating memory in hphylik()");
 }
 
 
@@ -813,7 +824,7 @@ void mkdiffbk(struct diffbk *p, int kr, int kb) { /* kr is dim of root and kb th
 	p->F = p->K + kb * kb;
 	return;
 MEMFAIL:
-	RUPROTERR(("mkdiffbk(): Error allocating memory"));
+	error("mkdiffbk(): Error allocating memory");
 }
 void freediffbk(struct diffbk *p) { free(p->z); }
 
@@ -1133,7 +1144,7 @@ void initgbk(struct hessglbbk *gbk, struct node *rt, struct node *p, int maxdim)
 	memcpy(gbk->fm->dat,    p->ndat.HPhi, (p->ndat.ku)*(rt->ndat.ku) * sizeof(double));
 	return;
 MEMFAIL:
-	RUPROTERR(("initgbk(): Error allocating memory for internal book-keeping."));
+	error("initgbk(): Error allocating memory for internal book-keeping.");
 }
 
 void llstcpy(struct llst **dst, const struct llst *src, int blksiz) {
@@ -1149,7 +1160,7 @@ AGAIN:
 	}
 	return;
 MEMFAIL:
-	RUPROTERR(("llstcpy(): Error allocating memory."));
+	error("llstcpy(): Error allocating memory.");
 }
 void llstptrcpy(struct llstptr **dst, const struct llstptr *src) {
 AGAIN:
@@ -1161,7 +1172,7 @@ AGAIN:
 	src = src->nxt;
 	goto AGAIN;
 MEMFAIL:
-	RUPROTERR(("llstptrcpy(): Error allocating memory."));
+	error("llstptrcpy(): Error allocating memory.");
 }
 void gbkcpy(struct hessglbbk **dst, const struct hessglbbk *src) {
 	*dst = malloc(sizeof(struct hessglbbk));
@@ -1173,7 +1184,7 @@ void gbkcpy(struct hessglbbk **dst, const struct hessglbbk *src) {
 	(*dst)->mdim = src->mdim;
 	return;
 MEMFAIL:
-	RUPROTERR(("gbkcpy(): Error allocating memory."));
+	error("gbkcpy(): Error allocating memory.");
 }
 
 /* BOTTLE NECK */
@@ -1682,9 +1693,9 @@ DIFSIM:
 		else              DIFFTIP(ictx,i,j,p,q, dl);
 		break;
 	default:
-		RUPROTERR(("Bug in hessselftop(): default case"));
+		error("Bug in hessselftop(): default case");
 	}
-	if (didx1 < didx2)  RUPROTERR(("Bug in hessselftop(): wrong indicies"));
+	if (didx1 < didx2)  error("Bug in hessselftop(): wrong indicies");
 	/* HESS_WRITE */
 	if (dir) {
 		bilinupdt_(&dl, hessflat, &(rt->u.rbk.nparam), &didx1, &didx2, dir, &ndir);
@@ -1772,42 +1783,48 @@ void hgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, doubl
          responsible for that...  */
 int chk_VwPhi_listnum2(struct node *t, SEXP VwPhi_L, int kv, int *mode, int *errcode) {
 	SEXP dim, VwPhi, V, w, Phi;
-	int ans;
-	VwPhi = VECTOR_ELT(VwPhi_L, t->id);
+	int ans, nprot;
+	VwPhi = PROTECT(VECTOR_ELT(VwPhi_L, t->id));
+	V = R_NilValue; w = R_NilValue; Phi = R_NilValue;  /* Make GCC shut up... */
+	nprot = 1;
 	if (*mode == -1) {	/* detect if strings should be used as key or numbers */
-		SEXP names = getAttrib(VwPhi, R_NamesSymbol);
-		if ((!isNull(names)) &&
-		    (!isNull(Rlistelem(VwPhi, "V"))) &&
-		    (!isNull(Rlistelem(VwPhi, "w"))) &&
-		    (!isNull(Rlistelem(VwPhi, "Phi"))))
-			*mode = 1;
-		else    *mode = 2;
+		SEXP names = PROTECT(getAttrib(VwPhi, R_NamesSymbol));    ++nprot;
+		if (isNull(names)) {     goto MODE2; }
+		V = PROTECT(Rlistelem(VwPhi, "V"));                       ++nprot;
+		if (isNull(V))     {     goto MODE2; }
+		w = PROTECT(Rlistelem(VwPhi, "w"));                       ++nprot;
+		if (isNull(w))     {     goto MODE2; }
+		Phi = PROTECT(Rlistelem(VwPhi, "Phi"));                   ++nprot;
+		if (isNull(Phi))     {   goto MODE2; }
+		goto MODE1;
 	}
-	if (*mode == 1) {	/* String indexing */
-		if (length(VwPhi) != 3)                      { *errcode = 91; return -(t->id); }
-		V = Rlistelem(VwPhi, "V");
-		w = Rlistelem(VwPhi, "w");
-		Phi = Rlistelem(VwPhi, "Phi");
-	} else {		/* Numeric indexing */
-		if (length(VwPhi) != 3)                      { *errcode = 92; return -(t->id); }
-		V = VECTOR_ELT(VwPhi, 0);
-		w = VECTOR_ELT(VwPhi, 1);
-		Phi = VECTOR_ELT(VwPhi, 2);
-	}
+MODE1:  /* String indexing */
+	*mode = 1;
+	if (length(VwPhi) != 3)                      { *errcode = 91; return -(t->id); }
+	goto MORECHECKS;
+MODE2:  /* Numeric indexing */
+	*mode = 2;
+	if (length(VwPhi) != 3)                      { *errcode = 92; return -(t->id); }
+	V   = PROTECT(VECTOR_ELT(VwPhi, 0));
+	w   = PROTECT(VECTOR_ELT(VwPhi, 1));
+	Phi = PROTECT(VECTOR_ELT(VwPhi, 2));
+	nprot += 3;
+MORECHECKS:
 	if (TYPEOF(V) != REALSXP)   { *errcode = 10; return -(t->id); }
 	if (TYPEOF(w) != REALSXP)   { *errcode = 20; return -(t->id); }
 	if (TYPEOF(Phi) != REALSXP) { *errcode = 30; return -(t->id); }
 
-	dim = getAttrib(V, R_DimSymbol);
+	dim = PROTECT(getAttrib(V, R_DimSymbol));
 	if (length(dim) != 2)                                                   { *errcode=11; return -(t->id); }
 	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != t->ndat.ku)) { *errcode=12; return -(t->id); }
-	dim = getAttrib(w, R_DimSymbol);
+	dim = PROTECT(getAttrib(w, R_DimSymbol));
 	if (!(length(dim)==0 || length(dim)==1 || length(dim)==2))              { *errcode=21; return -(t->id); }
 	if ((length(dim)==2) && (INTEGER(dim)[1] != 1))                         { *errcode=22; return -(t->id); }
 	if (length(w) != t->ndat.ku)                                            { *errcode=23; return -(t->id); }
-	dim = getAttrib(Phi, R_DimSymbol);
+	dim = PROTECT(getAttrib(Phi, R_DimSymbol));
 	if (length(dim)!=2)                                                     { *errcode=31; return -(t->id); }
 	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != kv))         { *errcode=32; return -(t->id); }
+	UNPROTECT(nprot+3);
 	for (struct node *p = t->chd; p; p=p->nxtsb)
 		if ((ans = chk_VwPhi_listnum2(p, VwPhi_L, t->ndat.ku, mode, errcode)) != 1)
 			return ans;
@@ -1819,8 +1836,9 @@ int chk_VwPhi_listnum2(struct node *t, SEXP VwPhi_L, int kv, int *mode, int *err
 int chk_VwPhi_listnum(struct node *t, SEXP VwPhi_L, int *mode, int *errcode) {
 	int ans;
 	struct node *p;
-	if (! isNull(VECTOR_ELT(VwPhi_L, t->id))) return -(t->id);
+	if (! isNull(PROTECT(VECTOR_ELT(VwPhi_L, t->id)))) return -(t->id);
 	*mode = -1;
+	UNPROTECT(1);
 	for (p = t->chd; p; p=p->nxtsb) 
 		if ((ans=chk_VwPhi_listnum2(p, VwPhi_L, t->ndat.ku, mode, errcode)) != 1)
 			return ans;
@@ -1833,17 +1851,17 @@ fn_getvwphi chk_VwPhi(struct node *t, SEXP VwPhi_L) {
 	case REALSXP:
 		/* It must be of length nparam */
 		if (! (length(VwPhi_L) == t->u.rbk.nparam))
-			RUPROTERR(("The VwPhi parameters should be %ld dimensional but we've got %d dimensions",
-				   t->u.rbk.nparam, (int)(length(VwPhi_L))));
+			error("The VwPhi parameters should be %ld dimensional but we've got %d dimensions",
+				   t->u.rbk.nparam, (int)(length(VwPhi_L)));
 		return &getvwphi_vec;
 	case VECSXP:
 		if (length(VwPhi_L) != t->ndat.ndesc+1)
-			RUPROTERR(("VwPhi parameters is a list but its length is not equal to the number of nodes"));
+			error("VwPhi parameters is a list but its length is not equal to the number of nodes");
 		if ((chk_ans = chk_VwPhi_listnum(t, VwPhi_L, &mode, &errcode))!=1)
-			RUPROTERR(("Malformed VwPhi parameter at node #%d, err. code=%d", -chk_ans+1, errcode));
+			error("Malformed VwPhi parameter at node #%d, err. code=%d", -chk_ans+1, errcode);
 		return mode == 1 ? &getvwphi_liststr : &getvwphi_listnum;
 	default:
-		RUPROTERR(("VwPhi parameters must either be a list or numeric vector with mode 'double'"));
+		error("VwPhi parameters must either be a list or numeric vector with mode 'double'");
 	}
 }
 SEXP Rndphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
@@ -1852,10 +1870,8 @@ SEXP Rndphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
 	t = R_ExternalPtrAddr(p);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	protdpth = 1;
 	ndphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t, VwPhi_L));
 	UNPROTECT(1);
-	protdpth = -1;
 	return l;
 }
 SEXP Rdphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
@@ -1864,10 +1880,8 @@ SEXP Rdphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
 	t = R_ExternalPtrAddr(p);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	protdpth = 1;
 	dphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t,VwPhi_L));
 	UNPROTECT(1);
-	protdpth = -1;
 	return l;
 }
 
@@ -1890,12 +1904,10 @@ SEXP Rhphylik_dir(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP dir) {
 	res_dim[1] = ndir;
 	setAttrib(Rres, R_DimSymbol, Rres_dim);
 	l = PROTECT(allocVector(REALSXP, 1));
-	protdpth = 3;
 	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), REAL(Rres), REAL(dir), ndir);
 	t->u.rbk.hessflat_needs_free = 0;
 	t->u.rbk.hessflat            = NULL;
 	UNPROTECT(3);
-	protdpth = -1;
 	return Rres;
 }
 
@@ -1905,10 +1917,8 @@ SEXP Rhphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
 	t = R_ExternalPtrAddr(p);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	protdpth = 1;
 	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), NULL, NULL, 0);
 	UNPROTECT(1);
-	protdpth = -1;
 	return l;
 }
 SEXP Rhphylik_big(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP hessfp) {
@@ -1919,10 +1929,8 @@ SEXP Rhphylik_big(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP hessfp) {
 	hessflat = R_ExternalPtrAddr(hessfp);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	protdpth = 1;
 	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), hessflat, NULL, 0);
 	UNPROTECT(1);
-	protdpth = -1;
 	return l;
 }
 void extractderiv(struct node *t, int kv, SEXP x);
@@ -2055,10 +2063,8 @@ SEXP Rtagreg(SEXP p, SEXP Rnnode, SEXP regspec) {
 	ilenv = (int) lenv; /* If the user passes in 2.147 billions of regions it will fail... */
 	nnode = INTEGER(Rnnode)[0];
 	res = PROTECT(allocVector(INTSXP, nnode));
-	protdpth = 1;
 	tagreg(t, nnode, v, ilenv, INTEGER(res));
 	UNPROTECT(1);
-	protdpth = -1;
 	return res;
 }
 void tagreg(struct node *t, int nnode, int *v, int lenv, int *res) {
@@ -2076,7 +2082,7 @@ void tagreg2(struct node *t, int nnode, int *v, int lenv, int *res, int curreg) 
 	v[lenv-1] = t->id+1;
 	while (v[j++] != t->id+1);
 	res[t->id] = j >= lenv ? curreg : (curreg = j);
-	if (curreg < 0) RUPROTERR(("tagreg(): Failed to find the evolutionary region of node %d", t->id+1));
+	if (curreg < 0) error("tagreg(): Failed to find the evolutionary region of node %d", t->id+1);
 	for (t = t->chd; t; t=t->nxtsb) tagreg2(t, nnode, v, lenv, res, curreg);
 }
 
@@ -2116,7 +2122,8 @@ SEXP Rvwphi_simul(SEXP Rctree, SEXP Rntip, SEXP Rdimtab, SEXP Rpar, SEXP Rnsamp,
 	if (!(wsp = malloc(lwsp))) goto MEMFAIL;
 	GetRNGstate();
 	for (int i=0; i<nsamp; ++i) {
-		vwphi_simul(t, ntip, dpar, x0, wsp, VECTOR_ELT(out, i), &info);
+		vwphi_simul(t, ntip, dpar, x0, wsp, PROTECT(VECTOR_ELT(out, i)), &info);
+		UNPROTECT(1);
 		if (info != 0) {
 			free(wsp);
 			goto CHOLFAIL;
@@ -2129,11 +2136,9 @@ SEXP Rvwphi_simul(SEXP Rctree, SEXP Rntip, SEXP Rdimtab, SEXP Rpar, SEXP Rnsamp,
 
 MEMFAIL:
 	PutRNGstate();
-	UNPROTECT(1);
 	error("Rvwphi_simul(): failed to allocate memory.");
 CHOLFAIL:
 	PutRNGstate();
-	UNPROTECT(1);
 	if (info > 0) error("Rvwphi_simul(): the `V` in node #%d is not positive definite", info);
 	else          error("Rvwphi_simul(): congratulation! you have found a bug in the package... (cholesky of node #%d)", info);
 }
@@ -2154,7 +2159,8 @@ void vwphi_simulwk(struct node *t, int ntip, double *dpar, double *daddy, int kv
 		return;
 	}
 	if (t->id < ntip) {
-		memcpy(REAL(VECTOR_ELT(out, t->id)), wsp+swsp, (t->ndat.ku)*sizeof(double));
+		memcpy(REAL(PROTECT(VECTOR_ELT(out, t->id))), wsp+swsp, (t->ndat.ku)*sizeof(double));
+		UNPROTECT(1);
 	} else {
 		size_t newswsp;
 		newswsp = swsp + (size_t)(t->ndat.ku);
@@ -2254,7 +2260,7 @@ SEXP Rtagmiss(SEXP Rtr, SEXP Rnnodes, SEXP Rtipmiss) {
 	SEXP RM, dim;
 	t = (struct node *) R_ExternalPtrAddr(Rtr);
 	TM = INTEGER(Rtipmiss);
-	dim = getAttrib(Rtipmiss, R_DimSymbol);
+	dim = PROTECT(getAttrib(Rtipmiss, R_DimSymbol));
 	maxdim = INTEGER(dim)[0];
 	nnodes = INTEGER(Rnnodes)[0];
 	RM = PROTECT(allocMatrix(INTSXP, maxdim, nnodes));
@@ -2263,11 +2269,9 @@ SEXP Rtagmiss(SEXP Rtr, SEXP Rnnodes, SEXP Rtipmiss) {
         tagmiss(t, TM, maxdim, INTEGER(dim)[1], nnodes, M);
 #define _M(q, dim)   M[((q)->id)*(maxdim)+(dim)]
 	for (int d=0; d<maxdim; ++d)
-		if (_M(t,d) != 1) {
-			UNPROTECT(1);
+		if (_M(t,d) != 1)
 			error("Some dimensions has NaN on all tips!");
-		}
-	UNPROTECT(1);
+	UNPROTECT(2);
 	return RM;
 }
 
@@ -2286,23 +2290,9 @@ void tagmiss(struct node *t, int *TM, int maxdim, int ntips, int nnodes, int *M)
 #undef _TM
 }
 
-/* SEXP deltamthd_(long *n, long *m, double *H, double *J, double *out, int *info); */
-/* SEXP Rdeltamthd(SEXP RH, SEXP RJ, SEXP Rout) { */
-/* 	SEXP dim, Rinfo; */
-/* 	long n, m; */
-/* 	Rinfo = PROTECT(allocVector(INTSXP, 1)); */
-/* 	dim = getAttrib(RJ, R_DimSymbol); */
-/* 	n = (long)(INTEGER(dim)[0]); */
-/* 	m = (long)(INTEGER(dim)[1]); */
-/* 	deltamthd_(&n, &m, (double*)R_ExternalPtrAddr(RH), REAL(RJ), REAL(Rout), INTEGER(Rinfo)); */
-/* 	UNPROTECT(1); */
-/* 	return Rinfo; */
-/* } */
-
-
 int chkusrhess_VwOrPhi(SEXP Robj, int VwOrPhi, int nparregime, int ku, int kv) {
-	int ld; SEXP Rdim;
-    ld = 0;         /* Just to make GCC shut up. */
+	int ld, retval; SEXP Rdim;
+	ld = 0;         /* Just to make GCC shut up. */
 	switch (VwOrPhi) {
 	case 2: 		/* V */
 		ld = (ku*(ku+1))/2;   break;
@@ -2311,55 +2301,57 @@ int chkusrhess_VwOrPhi(SEXP Robj, int VwOrPhi, int nparregime, int ku, int kv) {
 	case 0:			/* Phi */
 		ld = ku*kv;
 	}
-	Rdim = getAttrib(Robj, R_DimSymbol);
-	return (TYPEOF(Robj) == REALSXP
+	Rdim = PROTECT(getAttrib(Robj, R_DimSymbol));
+	retval= (TYPEOF(Robj) == REALSXP
 		&& (!isNull(Rdim))
 		&& TYPEOF(Rdim) == INTSXP
 		&& length(Rdim) == 3
 		&& (INTEGER(Rdim))[0] == ld
 		&& (INTEGER(Rdim))[1] == nparregime
 		&& (INTEGER(Rdim))[2] == nparregime);
+	UNPROTECT(1);
+	return(retval);
 }
 void chkusrhess (SEXP Robj, int nparglobal, int nparregime, int nid, int pid, int ku, int kv) {
 	SEXP RVans, Rwans, RPhians;
 	if (TYPEOF(Robj) != VECSXP)
-		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+		error("curvifyhess(): User-supplied Hessian function for the user-specified "
 			  "parameterisation returned a non-list on node ID #%d (mother node is #%d).",
-			   nid+1, pid+1));
+			   nid+1, pid+1);
 	if (length(Robj) != 3)
-		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+		error("curvifyhess(): User-supplied Hessian function for the user-specified "
 			  "parameterisation returned a wrong-formatted list on node ID #%d. "
 			   "(mother node is #%d). The list should contains exactly three elements "
 			   "with names `V', `w', and `Phi'",
-			   nid+1, pid+1));
-	RVans   = Rlistelem(Robj, "V");
-	Rwans   = Rlistelem(Robj, "w");
-	RPhians = Rlistelem(Robj, "Phi");
+			   nid+1, pid+1);
+	RVans   = PROTECT(Rlistelem(Robj, "V"));
+	Rwans   = PROTECT(Rlistelem(Robj, "w"));
+	RPhians = PROTECT(Rlistelem(Robj, "Phi"));
 	if (! chkusrhess_VwOrPhi(RVans, 2, nparregime, ku, kv))
-		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+		error("curvifyhess(): User-supplied Hessian function for the user-specified "
 			   "parameterisation returned an wrong object on the `V' part of the returned "
 			   "list on node ID #%d (mother node is #%d). For this particular node, "
 			   "I expect that ans[['V']] "
 			   "is a %d-by-%d-by-%d array of double precision real numbers.",
-			   nid+1, pid+1, (ku*(ku+1))/2, nparregime, nparregime));
+			   nid+1, pid+1, (ku*(ku+1))/2, nparregime, nparregime);
 	if (! chkusrhess_VwOrPhi(Rwans, 1, nparregime, ku, kv))
-		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+		error("curvifyhess(): User-supplied Hessian function for the user-specified "
 			   "parameterisation returned an wrong object on the `w' part of the returned "
 			   "list on node ID #%d (mother node is #%d). For this particular node, "
 			   "I expect that ans[['w']] "
 			   "is a %d-by-%d-by-%d array of double precision real numbers.",
-			   nid+1, pid+1, ku, nparregime, nparregime));
+			   nid+1, pid+1, ku, nparregime, nparregime);
 	if (! chkusrhess_VwOrPhi(RPhians, 0, nparregime, ku, kv))
-		RUPROTERR(("curvifyhess(): User-supplied Hessian function for the user-specified "
+		error("curvifyhess(): User-supplied Hessian function for the user-specified "
 			   "parameterisation returned an wrong object on the `Phi' part of the returned "
 			   "list on node ID #%d (mother node is #%d). For this particular node, "
 			   "I expect that ans[['Phi']] "
 			   "is a %d-by-%d-by-%d array of double precision real numbers.",
-			   nid+1, pid+1, ku*kv, nparregime, nparregime));
+			   nid+1, pid+1, ku*kv, nparregime, nparregime);
+	UNPROTECT(3);
 }
 
 SEXP Rchkusrhess(SEXP Robj, SEXP Rnparglobal, SEXP Rnparregime, SEXP Rnid, SEXP Rpid, SEXP Rku, SEXP Rkv) {
-	protdpth = -1;
 	chkusrhess(Robj,
 		   INTEGER(Rnparglobal)[0], INTEGER(Rnparregime)[0],
 		   INTEGER(Rnid)[0], INTEGER(Rpid)[0],
@@ -2375,18 +2367,18 @@ void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP fnh, SEXP env
 	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
 	nodeid = INTEGER(Rnodeidcell);
 	*nodeid = (t->id)+1;
-	Rf_call     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
+	Rf_call = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
 	Rans = PROTECT(eval(Rf_call, env)); /* Trusted because the user function was wrapped and checked */
-	RVans = Rlistelem(Rans, "V");
-	Rwans = Rlistelem(Rans, "w");
-	RPhians = Rlistelem(Rans, "Phi");
+	RVans = PROTECT(Rlistelem(Rans, "V"));
+	Rwans = PROTECT(Rlistelem(Rans, "w"));
+	RPhians = PROTECT(Rlistelem(Rans, "Phi"));
 	curvifyupdate_( H, REAL(RVans), REAL(Rwans), REAL(RPhians),
 			&(npar), &(t->ndat.ku), &(kv),
 			t->ndat.dlikdv, t->ndat.dlikdw, t->ndat.dlikdphi,
 			wsp);
 	for (p = t->chd; p; p = p->nxtsb)
 		curvifyhess(H, p, npar, t->ndat.ku, fnh, env, wsp, Rpar);
-	UNPROTECT(3);
+	UNPROTECT(6);
 }
 
 /*
@@ -2406,27 +2398,18 @@ void curvifyhess(double *H, struct node *t, int npar, int kv, SEXP fnh, SEXP env
 */
 SEXP Rcurvifyhess(SEXP RH, SEXP Rpar, SEXP tr, SEXP fnh, SEXP env) {
 	/* R caller should check the type, mode and dimension of RH, tr and so on. */
-//	SEXP Rnodeidcell, R_fcall;
 	double *wsp;
-//	int *nodeid;
 	int npar;
 	struct node *t, *p;
 	t = (struct node *) R_ExternalPtrAddr(tr);
-//	Rnodeidcell = PROTECT(allocVector(INTSXP, 1));
-//	nodeid = INTEGER(Rnodeidcell);
-//	*nodeid = -1;
-//	R_fcall     = PROTECT(lang3(fnh, Rnodeidcell, Rpar));
-//	protdpth = 2;
-	npar = INTEGER(getAttrib(RH, R_DimSymbol))[0];
-	wsp = malloc((2 * npar * npar + 1) * sizeof(double));
-	if (!wsp) {
+	npar = INTEGER(PROTECT(getAttrib(RH, R_DimSymbol)))[0];
+	if (!(wsp = malloc((2 * npar * npar + 1) * sizeof(double))))
 		error("Rcurvifyhess(): failed in malloc()");
-	}
 	dzero(wsp, 2*npar*npar+1);
 	for (p = t->chd; p; p = p->nxtsb)
 		curvifyhess(REAL(RH), p, npar, t->ndat.ku, fnh, env, wsp, Rpar);
 	free(wsp);
-	protdpth = -1;
+	UNPROTECT(1);
 	return R_NilValue;
 }
 
@@ -2458,7 +2441,7 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 	int fixed_ptr = 0;
 	int fixed_chked = 0;
 	
-	cmdstr = CHAR(STRING_ELT(Rcmdstr,0));
+	cmdstr = CHAR(PROTECT(STRING_ELT(Rcmdstr,0)));
 	in     = REAL(Rpar);
 	len_par= length(Rpar);
 	k      = INTEGER(Rk)[0];
@@ -2492,7 +2475,6 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			else if (cmdstr[i] == 'V')     curstate = 3;
 			else if (cmdstr[i] == 'L')     curstate = 4;
 			else {
-				UNPROTECT(1);
 				error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
@@ -2504,14 +2486,11 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				curstate = 1;
 			} else if (cmdstr[i] == 'l') {        /* Log cholesky */
 				double *wsp;    int lwsp = k*k;    int info = 0;
-				if (!(wsp = malloc(lwsp*sizeof(double)))) {
-					UNPROTECT(1);
+				if (!(wsp = malloc(lwsp*sizeof(double))))
 					error("Failed to allocate memory");
-				}
 				lnunchol_(in+iin, &k, wsp, &lwsp, out+iout, &info);
 				free(wsp);
 				if (info) {
-					UNPROTECT(1);
 					error("Failed to revert logged-diagonal cholesky. INFO=%d", info);
 				}
 				iin  += (k*(k+1))/2;
@@ -2519,26 +2498,20 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				curstate = 1;
 			} else if (cmdstr[i] == 'c') { /* cholesky */
 				double *wsp;    int lwsp = k*k;    int info = 0;
-				if (!(wsp = malloc(lwsp*sizeof(double)))) {
-					UNPROTECT(1);
+				if (!(wsp = malloc(lwsp*sizeof(double))))
 					error("Failed to allocate memory");
-				}
 				unchol_(in+iin, &k, wsp, &lwsp, out+iout, &info);
 				free(wsp);
-				if (info) {
-					UNPROTECT(1);
+				if (info)
 					error("Failed to revert logged-diagonal cholesky. INFO=%d", info);
-				}
 				iin  += (k*(k+1))/2;
 				iout += k*k;
 				curstate = 1;
 			} else if (cmdstr[i] == 'd') { /* diagonal */
 				/* Construct a flattened diagonal matrix. */
 				int jdiag=0;/* Diagonal counter */
-				if (iin+k > len_par) {
-					UNPROTECT(1);
-					error("Passed in parameter vector is too short", i, cmdstr[i]);
-				}
+				if (iin+k > len_par)
+					error("Passed in parameter vector is too short");
 				for (int jcol=0; jcol < k; ++jcol) { /* for each column */
 					int jrow=0;
 					while (jrow < jdiag) { out[iout++]=0.0; ++jrow; }
@@ -2551,10 +2524,8 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			} else if (cmdstr[i] == 'e') { /* log-diagonal */
 				/* Construct a flattened diagonal matrix. */
 				int jdiag=0;/* Diagonal counter */
-				if (iin+k > len_par) {
-					UNPROTECT(1);
-					error("Passed in parameter vector is too short", i, cmdstr[i]);
-				}
+				if (iin+k > len_par)
+					error("Passed in parameter vector is too short");
 				for (int jcol=0; jcol < k; ++jcol) { /* for each column */
 					int jrow=0;
 					while (jrow < jdiag) { out[iout++]=0.0; ++jrow; }
@@ -2572,38 +2543,29 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				SEXP Rfixed_elt;
 				if (!fixed_chked) {
 					fixed_chked = 1;
-					if (TYPEOF(Rfixedpart) != VECSXP) {
-						UNPROTECT(1);
+					if (TYPEOF(Rfixedpart) != VECSXP)
 						error("Fixed parameter parts should be a list of double precision vectors");
-					}
 				}
 				if (fixed_ptr >= length(Rfixedpart)) {
-					UNPROTECT(1);
 					error("The list of fixed parameters is too short");
 				}
-				Rfixed_elt = VECTOR_ELT(Rfixedpart, fixed_ptr++);
-				if (length(Rfixed_elt) != k*k) {
-					UNPROTECT(1);
+				Rfixed_elt = PROTECT(VECTOR_ELT(Rfixedpart, fixed_ptr++));
+				if (length(Rfixed_elt) != k*k)
 					error("The length of the %d-th fixed parameter part is incorrect: should be %d but I've got a vector of length %d",
 					      fixed_ptr, k*k, length(Rfixed_elt));
-				}
-				if (TYPEOF(Rfixed_elt) != REALSXP) {
-					UNPROTECT(1);
+				if (TYPEOF(Rfixed_elt) != REALSXP)
 					error("The %d-th fixed parameter is not a double precision numeric vector", fixed_ptr);
-				}
 				fixed = REAL(Rfixed_elt);
 				for (int j=0; j<k*k; ++j) out[iout++] = fixed[j];
+				UNPROTECT(1);
 				curstate = 1;
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy the entire kxk matrix */
-				if (iin+k*k > len_par) {
-					UNPROTECT(1);
+				if (iin+k*k > len_par)
 					error("Passed in parameter vector is too short", i, cmdstr[i]);
-				}
 				for (int j=0; j<k*k; ++j) out[iout++] = in[iin++];
 				curstate = 1;
 			} else {
-				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
@@ -2621,41 +2583,31 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 						error("Fixed parameter parts should be a list of double precision vectors");
 					}
 				}
-				if (fixed_ptr >= length(Rfixedpart)) {
-					UNPROTECT(1);
+				if (fixed_ptr >= length(Rfixedpart))
 					error("The list of fixed parameters is too short");
-				}
-				Rfixed_elt = VECTOR_ELT(Rfixedpart, fixed_ptr++);
-				if (length(Rfixed_elt) != k) {
-					UNPROTECT(1);
+				Rfixed_elt = PROTECT(VECTOR_ELT(Rfixedpart, fixed_ptr++));
+				if (length(Rfixed_elt) != k)
 					error("The length of the %d-th fixed parameter part is incorrect: should be %d but I've got a vector of length %d", fixed_ptr, k, length(Rfixed_elt));
-				}
-				if (TYPEOF(Rfixed_elt) != REALSXP) {
-					UNPROTECT(1);
+				if (TYPEOF(Rfixed_elt) != REALSXP)
 					error("The %d-th fixed parameter is not a double precision numeric vector", fixed_ptr);
-				}
 				fixed = REAL(Rfixed_elt);
 				for (int j=0; j<k; ++j) out[iout++] = fixed[j];
+				UNPROTECT(1);
 				curstate = 1;
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy a k-vector */
-				if (iin+k > len_par) {
-					UNPROTECT(1);
+				if (iin+k > len_par)
 					error("Passed in parameter vector is too short", i, cmdstr[i]);
-				}
 				for (int j=0; j<k; ++j) out[iout++] = in[iin++];
 				curstate = 1;
 			} else {
-				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
 		case 4: /* Expects input argument for 'L' */
 			if (cmdstr[i] == 'k') { /* keep the same */
-				if (iin+(k*(k+1))/2 > len_par) {
-					UNPROTECT(1);
+				if (iin+(k*(k+1))/2 > len_par)
 					error("Passed in parameter vector is too short");
-				}
 				for (int j=0; j<(k*(k+1))/2; ++j) {
 					out[iout++] = in[iin++];
 				}
@@ -2674,29 +2626,21 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				SEXP Rfixed_elt;
 				if (!fixed_chked) {
 					fixed_chked = 1;
-					if (TYPEOF(Rfixedpart) != VECSXP) {
-						UNPROTECT(1);
+					if (TYPEOF(Rfixedpart) != VECSXP)
 						error("Fixed parameter parts should be a list of double precision vectors");
-					}
 				}
-				if (fixed_ptr >= length(Rfixedpart)) {
-					UNPROTECT(1);
+				if (fixed_ptr >= length(Rfixedpart))
 					error("The list of fixed parameters is too short");
-				}
-				Rfixed_elt = VECTOR_ELT(Rfixedpart, fixed_ptr++);
-				if (length(Rfixed_elt) != (k*(k+1))/2) {
-					UNPROTECT(1);
+				Rfixed_elt = PROTECT(VECTOR_ELT(Rfixedpart, fixed_ptr++));
+				if (length(Rfixed_elt) != (k*(k+1))/2)
 					error("The length of the %d-th fixed parameter part is incorrect: should be %d but I've got a vector of length %d", fixed_ptr, (k*(k+1))/2, length(Rfixed_elt));
-				}
-				if (TYPEOF(Rfixed_elt) != REALSXP) {
-					UNPROTECT(1);
+				if (TYPEOF(Rfixed_elt) != REALSXP)
 					error("The %d-th fixed parameter is not a double precision numeric vector", fixed_ptr);
-				}
 				fixed = REAL(Rfixed_elt);
 				for (int j=0; j<(k*(k+1))/2; ++j) out[iout++] = fixed[j];
+				UNPROTECT(1);
 				curstate = 1;
 			} else {
-				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			// THIS BREAK STATEMENT WILL BUG OUT A BIG-NAME COMMERCIAL COMPILER.
@@ -2704,7 +2648,7 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 		}
 		++i;
 	}
-	UNPROTECT(1);
+	UNPROTECT(2);
 	if (iin != len_par) {
 		if (iin < len_par)
 			error("Passed in parameter vector is too long (=%d) compared to what the command string specifies (=%d)",
@@ -2731,7 +2675,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
            (5: Expects further argument. Not yet implemented.) */
 	int curstate = 1, i, ijacout, ijacin;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
-	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
+	cmdstr   = CHAR(PROTECT(STRING_ELT(Rcmdstr,0)));
 	parin    = REAL(Rpar);
 	jacin    = REAL(Rjac);
 	len_parin= length(Rpar);
@@ -2751,7 +2695,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 	}
 	if (i == 0) error("parameter restriction does not contain any 'M', 'v', or 'L'.");
 	/* How many dimension is the jac function's range? */
-	Rdim_jacin = getAttrib(Rjac, R_DimSymbol);
+	Rdim_jacin = PROTECT(getAttrib(Rjac, R_DimSymbol));
 	len_rng  = INTEGER(Rdim_jacin)[0];
 	len_jaccolorig = cnt_M*k*k + cnt_V*k + cnt_L*(k*(k+1))/2; /* Need to check counters against this*/
 	if (INTEGER(Rdim_jacin)[1] != len_jaccolorig) {
@@ -2774,10 +2718,8 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 			if (cmdstr[i] == 'M')          curstate = 2;
 			else if (cmdstr[i] == 'V')     curstate = 3;
 			else if (cmdstr[i] == 'L')     curstate = 4;
-			else {
-				UNPROTECT(1);
+			else
 				error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
-			}
 			break;
 		case 2: /* Expects input argument for 'M'; */
 			if (cmdstr[i] == 's') {                /* symmetric */
@@ -2852,7 +2794,6 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 				}
 				curstate = 1;
 			} else {
-				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
@@ -2873,7 +2814,6 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 				}
 				curstate = 1;
 			} else {
-				UNPROTECT(1);
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
@@ -2900,10 +2840,8 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 			} else if (cmdstr[i] == 'f') { /* Fixed, but not zero */
 				ijacin += (k*(k+1))/2;
 				curstate = 1;
-			} else {
-				UNPROTECT(1);
+			} else
 				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
-			}
 		}
 		++i;
 	}
@@ -2913,7 +2851,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 	dim_jacout[0] = len_rng;
 	dim_jacout[1] = len_parin;
 	setAttrib(Rjacout, R_DimSymbol, Rdim_jacout);
-	UNPROTECT(2);
+	UNPROTECT(4);
 	return Rjacout;
 }
 
@@ -2938,9 +2876,12 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	int chked_jaclower = 0;
 	int chked_jacthis = 0;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
-    jacthis = NULL;  /* Just to make GCC shut up. */
-    jaclower  = NULL;  /* Just to make GCC shut up. */
-	cmdstr   = CHAR(STRING_ELT(Rcmdstr,0));
+	jacthis = NULL;    /* Just to make GCC shut up. */
+	jaclower  = NULL;  /* Just to make GCC shut up. */
+	ld_jacthis = 0;    /* Same */
+	jthisoffset_c = 0; /* Same */
+	jthisoffset_r = 0; /* Same */
+	cmdstr   = CHAR(PROTECT(STRING_ELT(Rcmdstr,0)));
 	parin    = REAL(Rpar);
 	hessin    = REAL(Rhess);
 	len_parin= length(Rpar);
@@ -2960,7 +2901,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	}
 	if (i == 0) error("parameter restriction does not contain any 'M', 'v', or 'L'.");
 	/* How many dimension is the Hessian function's range? */
-	Rdim_hessin = getAttrib(Rhess, R_DimSymbol);
+	Rdim_hessin = PROTECT(getAttrib(Rhess, R_DimSymbol));
 	len_rng  = INTEGER(Rdim_hessin)[0];
 	len_hesscolorig = cnt_M*k*k + cnt_V*k + cnt_L*(k*(k+1))/2;
 	if (INTEGER(Rdim_hessin)[1] != len_hesscolorig || INTEGER(Rdim_hessin)[2] != len_hesscolorig)
@@ -2972,7 +2913,6 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	memcpy(hessouttmp, hessin, len_rng*len_hesscolorig*len_hesscolorig*sizeof(double));
 	/* Allocate the output according to len_out */
 	Rhessout = PROTECT(allocVector(REALSXP, len_hessout));
-	protdpth = 1;
 	hessout  = REAL(Rhessout);
 	len_hesscurr = len_hesscolorig; /* Will be decreased step-by-step until it reaches len_parin. */
 	for (i = 0; i<len_hessout; ++i) hessout[i] = 0.0;
@@ -2986,7 +2926,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			if      (cmdstr[i] == 'M')     curstate = 2;
 			else if (cmdstr[i] == 'V')     curstate = 3;
 			else if (cmdstr[i] == 'L')     curstate = 4;
-			else { RUPROTERR(("Expected output type declaration at position %d but got '%s'", i, cmdstr[i])); }
+			else    error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
 			break;
 		case 2: /* Expects input argument for 'M'; */
 			if (cmdstr[i] == 's') {        /* symmetric */
@@ -3012,22 +2952,22 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			} else if (cmdstr[i] == 'l') { /* Log cholesky */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
-				if (isNull(Rjaclower)) { RUPROTERR(("Log-Cholesky 2nd-order chain rule required but Rjaclower is NULL")); }
+				if (isNull(Rjaclower)) { error("Log-Cholesky 2nd-order chain rule required but Rjaclower is NULL"); }
 				if (!chked_jaclower) {
 					SEXP Rdim_jaclower;
 					if (TYPEOF(Rjaclower) != REALSXP)
-						RUPROTERR(("Cholesky 2nd-order chain rule required but Rjaclower is NULL"));
+						error("Cholesky 2nd-order chain rule required but Rjaclower is NULL");
 					Rdim_jaclower = getAttrib(Rjaclower, R_DimSymbol);
 					if (TYPEOF(Rdim_jaclower) != INTSXP || length(Rdim_jaclower) != 2)
-						RUPROTERR(("Rjaclower must be two-dimensional"));
+						error("Rjaclower must be two-dimensional");
 					if (INTEGER(Rdim_jaclower)[1] != len_hesscolorig)
-						RUPROTERR(("ncol(Rjaclower) mismatches the original Hessian"));
+						error("ncol(Rjaclower) mismatches the original Hessian");
 					if (TYPEOF(Rjloweroffset) != INTSXP || length(Rjloweroffset) != 1)
-						RUPROTERR(("Rjloweroffset is not an integer. Please as.integer() if called from R."));
+						error("Rjloweroffset is not an integer. Please as.integer() if called from R.");
 					jloweroffset = INTEGER(Rjloweroffset)[0];
 					ld_jaclower = INTEGER(Rdim_jaclower)[0];
 					if (jloweroffset + len_rng > ld_jaclower || jloweroffset < 0)
-					        RUPROTERR(("Rjloweroffset is too big or negative"));
+					        error("Rjloweroffset is too big or negative");
 					jaclower = REAL(Rjaclower);
 					chked_jaclower = 1;
 				}
@@ -3046,22 +2986,22 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			} else if (cmdstr[i] == 'c') { /* cholesky */
 				double *hessouttmp_new;
 				int len_hesscurr_new;
-				if (isNull(Rjaclower)) { RUPROTERR(("Cholesky 2nd-order chain rule required but Rjaclower is NULL")); }
+				if (isNull(Rjaclower)) error("Cholesky 2nd-order chain rule required but Rjaclower is NULL");
 				if (!chked_jaclower) {
 					SEXP Rdim_jaclower;
 					if (TYPEOF(Rjaclower) != REALSXP)
-						RUPROTERR(("Cholesky 2nd-order chain rule required but Rjaclower is NULL"));
+						error("Cholesky 2nd-order chain rule required but Rjaclower is NULL");
 					Rdim_jaclower = getAttrib(Rjaclower, R_DimSymbol);
 					if (TYPEOF(Rdim_jaclower) != INTSXP || length(Rdim_jaclower) != 2)
-						RUPROTERR(("Rjaclower must be two-dimensional"));
+						error("Rjaclower must be two-dimensional");
 					if (INTEGER(Rdim_jaclower)[1] != len_hesscolorig)
-						RUPROTERR(("ncol(Rjaclower) mismatches the original Hessian"));
+						error("ncol(Rjaclower) mismatches the original Hessian");
 					if (TYPEOF(Rjloweroffset) != INTSXP || length(Rjloweroffset) != 1)
-						RUPROTERR(("Rjloweroffset is not an integer. Please as.integer() if called from R."));
+						error("Rjloweroffset is not an integer. Please as.integer() if called from R.");
 					jloweroffset = INTEGER(Rjloweroffset)[0];
 					ld_jaclower = INTEGER(Rdim_jaclower)[0];
 					if (jloweroffset + len_rng > ld_jaclower || jloweroffset < 0)
-					        RUPROTERR(("Rjloweroffset is too big or negative"));
+					        error("Rjloweroffset is too big or negative");
 					jaclower = REAL(Rjaclower);
 					chked_jaclower = 1;
 				}
@@ -3100,26 +3040,27 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			} else if (cmdstr[i] == 'e') { /* log-diagonal */
 				int len_hesscurr_new;
 				double *hessouttmp_new;
-				if (isNull(Rjacthis)) { RUPROTERR(("Log-diagonal 2nd-order chain rule required but Rjacthis is NULL")); }
+				if (isNull(Rjacthis)) error("Log-diagonal 2nd-order chain rule required but Rjacthis is NULL");
 				if (!chked_jacthis) {
 					SEXP Rdim_jacthis;
 					if (TYPEOF(Rjacthis) != REALSXP)
-						RUPROTERR(("Log diagonal 2nd-order chain rule required but Rjacthis is NULL"));
-					Rdim_jacthis = getAttrib(Rjacthis, R_DimSymbol);
+						error("Log diagonal 2nd-order chain rule required but Rjacthis is NULL");
+					Rdim_jacthis = PROTECT(getAttrib(Rjacthis, R_DimSymbol));
 					if (TYPEOF(Rdim_jacthis) != INTSXP || length(Rdim_jacthis) != 2)
-						RUPROTERR(("Rjacthis must be two-dimensional"));
+						error("Rjacthis must be two-dimensional");
 					if (TYPEOF(Rjthisoffset_c) != INTSXP || length(Rjthisoffset_c) != 1)
-						RUPROTERR(("Rjthisoffset_c is not an integer. Please as.integer() if called from R."));
+						error("Rjthisoffset_c is not an integer. Please as.integer() if called from R.");
 					if (TYPEOF(Rjthisoffset_r) != INTSXP || length(Rjthisoffset_r) != 1)
-						RUPROTERR(("Rjthisoffset_r is not an integer. Please as.integer() if called from R."));
+						error("Rjthisoffset_r is not an integer. Please as.integer() if called from R.");
 					jthisoffset_c = INTEGER(Rjthisoffset_c)[0];
 					jthisoffset_r = INTEGER(Rjthisoffset_r)[0];
 					ld_jacthis    = INTEGER(Rdim_jacthis)[0];
 					if (jthisoffset_r + len_rng > ld_jacthis || jthisoffset_r < 0)
-					        RUPROTERR(("Rjthisoffset_r is too big or negative"));
+					        error("Rjthisoffset_r is too big or negative");
 					if (jthisoffset_c + k > (INTEGER(Rdim_jacthis)[1]) || jthisoffset_c < 0)
-					        RUPROTERR(("Rjthisoffset_c is too big or negative, or Rjacthis has too few columns."));
+					        error("Rjthisoffset_c is too big or negative, or Rjacthis has too few columns.");
 					jacthis = REAL(Rjacthis);
+					UNPROTECT(1);
 					chked_jacthis = 1;
 				}
 				len_hesscurr_new = len_hesscurr - k*k+k;
@@ -3152,7 +3093,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				isquashed+= k*k;
 				curstate = 1;
 			} else {
-				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
 		case 3: /* Expects input argument for 'V'; */
@@ -3175,7 +3116,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				isquashed+= k;
 				curstate = 1;
 			} else {
-				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 			break;
 		case 4: 	/* Expects input argument for 'L' */
@@ -3212,16 +3153,14 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				ihessin += (k*(k+1))/2;
 				curstate = 1;
 			} else {
-				RUPROTERR(("Expected input type at position %d but got '%s'", i, cmdstr[i]));
+				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
 			}
 		}
 		++i;
 	}
 	/* Add dim attributes to the output */
-	if (len_hesscurr != len_parin) {
-		UNPROTECT(1);
+	if (len_hesscurr != len_parin)
 		error("Input parameter length mismatches what the command string describes");
-	}
 	memcpy(hessout, hessouttmp, len_rng*len_parin*len_parin*sizeof(double));
 	Rdim_hessout = PROTECT(allocVector(INTSXP, 3));
 	dim_hessout = INTEGER(Rdim_hessout);
@@ -3229,11 +3168,10 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 	dim_hessout[1] = len_parin;
 	dim_hessout[2] = len_parin;
 	setAttrib(Rhessout, R_DimSymbol, Rdim_hessout);
-	UNPROTECT(2);
-	protdpth = -1;
+	UNPROTECT(4);
 	return Rhessout;
 MEMFAIL:
-	RUPROTERR(("Failed to allocate memory"));
+	error("Failed to allocate memory");
 	return R_NilValue;	/* Unreachable. */
 }
 
