@@ -1,4 +1,3 @@
-## THESE TESTS ARE GENERATED AUTOMATICALLY. DO NOT MODIFY.
 test_that("Dynamic scoping", {
   set.seed(1)
   ntips = 200

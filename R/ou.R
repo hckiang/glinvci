@@ -116,9 +116,9 @@ oujac = function (par, t, ...) {
   invP = matrix(0,k,k);                   mode(invP)    = 'complex'
   Lambda = complex(k);                    mode(Lambda)  = 'complex'
   info = integer(1);                      mode(info)    = 'integer'
-  lzwsp = max(8L*k*k, 3L*k*k+4L*k^4L);    mode(lzwsp)   = 'integer'
+  lzwsp = max(12L*k*k, 6L*k*k+4L*k^4L);   mode(lzwsp)   = 'integer'
   zwsp = complex(lzwsp);                  mode(zwsp)    = 'complex'
-  lwsp = 18L*k*k+as.integer(3*k^4)+19L+1L;mode(lwsp)    = 'integer'
+  lwsp = 18L*k*k+as.integer(4*k^4)+30L;   mode(lwsp)    = 'integer'
   wsp = double(lwsp);                     mode(wsp)     = 'double'
   eigavail = 0;                           mode(eigavail)= 'integer'
   jac   = matrix(0,k*k+k+(k*(k+1L))%/%2L,k*k+k+(k*(k+1L))%/%2L); mode(jac)   = 'double'
@@ -148,10 +148,17 @@ ouhess = function (par, t, ...) {
   P = as.complex(eig[['vectors']])
   invP = as.complex(solve(eig[['vectors']]))
   Lambda = as.complex(eig[['values']])
+  if (any(Mod(Lambda)>=12*log(10))) {
+    biggest = Lambda[which.max(Mod(Lambda))]
+    warning(sprintf('ouhess: the closed form spectral formula for the Hessian\'s drift-matrix entries could potentially be numerically quite inaccurate because some eigenvalues of the drift matrix is big (=%s, the %d-th eigenvalue). This means that after expontiation, we are computing with numbers like this extreme: exp(%s)=%s and exp(-(%s))=%s. Finite difference might be slightly more stable in these cases but it is more important to note that this statistically means that the phylogeny is almost irrelevant on the evolution in such directions.',
+                    as.character(biggest), which.max(Mod(Lambda)),
+                    as.character(biggest), as.character(exp(biggest)),
+                    as.character(biggest), as.character(exp(-biggest))))
+  }
   res = .C(hphiha_, t,
            k, P,invP,Lambda,
            array(0.0, c(k*k,k*k,k*k)),
-           complex(k^6+2L*(k*k)+3), integer(k^6+2L*(k*k)+3),
+           complex(k^6+2L*(k*k)+3), as.integer(k^6+2L*(k*k)+3),
            0L)
   if (res[[9]] != 0) stop('Error executing hphiha_()')
   hphiha = res[[6]]
