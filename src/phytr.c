@@ -1088,6 +1088,7 @@ UPDESC:
 				/* Now wait for everything to finish... */
 				__PRAGMA__("omp taskwait")
 			}
+            __PRAGMA__("omp flush")
 			__PRAGMA__("omp barrier")
 			if (dir) {
 				__PRAGMA__("omp critical")
