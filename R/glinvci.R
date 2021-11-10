@@ -94,7 +94,7 @@ set_tips.glinv       = function (mod, X)    set_tips(mod$rawmod, tip_purge(X))
 #' @return         A list containing Nsamp elements, each of which represents a sample point from the model \code{mod}. The
 #'                 format of each elements depends on the \code{simplify} argument.
 #' @export
-rglinv = function (mod, par, Nsamp) UseMethod('rglinv')
+rglinv = function (mod, par, Nsamp, simplify) UseMethod('rglinv')
 
 #' @rdname rglinv
 #' @export

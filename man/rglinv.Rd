@@ -6,7 +6,7 @@
 \alias{rglinv.glinv_gauss}
 \title{Simulate random trait values from models.}
 \usage{
-rglinv(mod, par, Nsamp)
+rglinv(mod, par, Nsamp, simplify)
 
 \method{rglinv}{glinv}(mod, par, Nsamp = 1, simplify = TRUE)
 
