@@ -8,9 +8,9 @@
 \usage{
 rglinv(mod, par, Nsamp)
 
-\method{rglinv}{glinv}(mod, par, Nsamp)
+\method{rglinv}{glinv}(mod, par, Nsamp = 1, simplify = TRUE)
 
-\method{rglinv}{glinv_gauss}(mod, par, Nsamp)
+\method{rglinv}{glinv_gauss}(mod, par, Nsamp = 1, simplify = TRUE)
 }
 \arguments{
 \item{mod}{Either a \code{glinv_gauss} or \code{glinv} object.}
@@ -18,10 +18,15 @@ rglinv(mod, par, Nsamp)
 \item{par}{Parameters underlying the simulation, in the same format as \code{lik.glinv_gauss} or \code{lik.glinv}.}
 
 \item{Nsamp}{Number of sample point to simulate.}
+
+\item{simplify}{If TRUE, \code{rglinv.glinv} returns an Nsamp-element list with each element being a tip-trait matrix;
+otherwise, \code{rglinv.glinv} returns an Nsamp-element list with each element being an \eqn{n}-element list
+of \eqn{k}-element trait vectors, where \eqn{n} is the number of tips and \eqn{k} is the dimension of
+each trait vector.}
 }
 \value{
-A list containing Nsamp elements, each of which is a length-n list, where \eqn{n} is the number of tips
-              containing the simulated trait values.
+A list containing Nsamp elements, each of which represents a sample point from the model \code{mod}. The
+                format of each elements depends on the \code{simplify} argument.
 }
 \description{
 Simulate random trait values from the Gaussian branching process specified by \code{mod}.
