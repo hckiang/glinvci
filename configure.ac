@@ -44,7 +44,7 @@ if test -n "${OPENMP_CFLAGS}"; then
     #include <string.h>
     extern void fort_blastest_(int*, double*, double*, double*);
     static unsigned int g_seed = 12345U;
-    static int siz = 250, nloops = 700, correct = 1, *ret;
+    static int siz = 500, nloops = 1000, correct = 1, *ret;
     static double *Ac = 0;
     #pragma omp threadprivate(Ac)
     void myrand(double *x) {
@@ -54,7 +54,7 @@ if test -n "${OPENMP_CFLAGS}"; then
       double *A, *B, *Bc, *Rc, *res, fac, rsum=0.0;
       int k, j;
       Rc=0;
-      omp_set_num_threads(12);
+      omp_set_num_threads(2);
       B=(A=malloc(2*siz*siz*sizeof(double)))+siz*siz;
       for (j=0; j<siz*siz; ++j) {myrand(A+j); myrand(B+j);}
       fort_blastest_(&siz, A, B, (res=malloc(siz*siz*sizeof(double))));
@@ -87,7 +87,7 @@ if test -n "${OPENMP_CFLAGS}"; then
       }
       SEXP Rret = PROTECT(allocVector(INTSXP, 1));
       ret = INTEGER(Rret);
-      *ret = (int)(!!!correct);
+      *ret = !correct;
       UNPROTECT(1);
       return(Rret);
     }

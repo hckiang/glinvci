@@ -298,7 +298,7 @@ void delgbk(struct hessglbbk gbk);
 
 #define dcalloc(LHS, N, ONFAIL) { void* T; if( !(T = malloc((N)*sizeof(double)))) goto ONFAIL; dzero(T,N); LHS=T; }
 #define icalloc(LHS, N, ONFAIL) { void* T; if( !(T = malloc((N)*sizeof(int))))    goto ONFAIL; izero(T,N); LHS=T; }
-void dzero (double *X, size_t n)           { while(n) X[--n] = 0; }
+void dzero (double *X, size_t n)           { while(n) X[--n] = 0.0; }
 void izero (int *X, size_t n)              { while(n) X[--n] = 0; }
 void dset  (double *X, double y, size_t n) { while(n) X[--n] = y; }
 void iset  (int *X, int y, size_t n)       { while(n) X[--n] = y; }
@@ -846,6 +846,7 @@ void grad(struct node *t, double *x0) {
 				for (q = p->chd; q; q = q->nxtsb)
 					gradwk(q, p, t, x0, bk, t->ndat.ku);
 			}
+			__PRAGMA__("omp taskwait")
 		}
 		__PRAGMA__("omp barrier")
 	}
@@ -1035,17 +1036,16 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 				j = 0;
 DOWNDESC:
 				/* HESS_WRITE */
-				if (dir) {
+				if (dir)
 					tntmdir_(&(t->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1_ch,
 						 curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
 						 curdesc.n->ndat.dgamdphi, x0, extrmem, dir, &ndir, &(t->u.rbk.nparam), &(p->u.hnbk.Phi), &(p->u.hnbk.V),
 						 &(p->u.hnbk.w), &(curdesc.n->u.hnbk.Phi), &(curdesc.n->u.hnbk.V), &(curdesc.n->u.hnbk.w));
-				} else {
+				else
 					tntm_(&(t->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(t->ndat.ku), &(p->ndat.ku), curdesc.dfqk1_ch,
 					      curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
 					      curdesc.n->ndat.dgamdphi, x0, t->u.rbk.hessflat, &(t->u.rbk.nparam), &(p->u.hnbk.Phi), &(p->u.hnbk.V),
 					      &(p->u.hnbk.w), &(curdesc.n->u.hnbk.Phi), &(curdesc.n->u.hnbk.V), &(curdesc.n->u.hnbk.w));
-				}
 				if (curdesc.n->chd) {
 					if (! (curdesc.dfqk1new_ch = calloc(DFQKSIZ,1))) goto MEMFAIL;
 					if (! allocdfqk(t->ndat.ku, curdesc.n->ndat.ku, curdesc.kv,
@@ -1075,7 +1075,7 @@ UPDESC:
 		wkret = 0;
 		__PRAGMA__("omp parallel shared(wkret)")
 		{
-			thrpv_bilinmat = NULL;
+			thrpv_bilinmat = NULL; /* Thread private. */
 			if (dir) {
 				if (! (thrpv_bilinmat = malloc(ndir * ndir * sizeof(double)))) {
 					__ATOMIC_WRITE__
@@ -1094,19 +1094,21 @@ UPDESC:
 				struct node *q;
 				for (q = p->chd; q; q = q->nxtsb) {
 					wkret=hessglobwk(q, p, &gbk, x0, t, VwPhi_L, get_VwPhi, wsp, swsp, lwsp, &interrupted, extrmem, dir, ndir);
+					__PRAGMA__("omp flush(wkret, interrupted)");
 					if (wkret || interrupted) break;
 				}
 				/* Now wait for everything to finish... */
 				__PRAGMA__("omp taskwait")
 			}
-            __PRAGMA__("omp flush")
+			__PRAGMA__("omp flush")
 			__PRAGMA__("omp barrier")
 			if (dir) {
+				__PRAGMA__("omp flush")
 				__PRAGMA__("omp critical")
 				{
 					int k;
 					for (k=0; k<ndir*ndir; ++k) {
-						extrmem[k] = extrmem[k] + thrpv_bilinmat[k];
+						extrmem[k] += thrpv_bilinmat[k];
 					}
 				}
 			}
@@ -1289,8 +1291,8 @@ DOWNALPHA:
 #define KMU (pv_ancestry[pv_i]->ndat.ku)
 			lblk = PAIR_HESS_SIZE(KNV,KNU,KMV,KMU);
 			if (pushbackptr % 64) {
-				__ATOMIC_READ__
-					yes = *interrupted;
+					__ATOMIC_READ__
+						yes = *interrupted;
 				if (yes) {
 					free(wsp_a);
 					for (j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
@@ -1489,9 +1491,8 @@ DOWNGLOB:
 	}
 
 	__PRAGMA__("omp task firstprivate(rt,x0,i,ancestry,starters,curglob,extrmem,interrupted,dir,ndir) if (ndesc_sum > 40)")
-	{
-		walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
-	}
+	walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
+
 	if (err) goto MEMFAIL;
 	if (!(curglob.m->chd)) {
 		if (i != 1) goto UPGLOB;    /* "Return" to the upper-level recursion */
