@@ -30,12 +30,23 @@ HACKY_OMPCFLAGS="${OPENMP_CFLAGS}"
 RFLIBSFLAGS=`"${RBIN}" CMD config FLIBS`
 RSAFEFFLAGS=`"${RBIN}" CMD config SAFE_FFLAGS`
 
+ac_odsc=no
+AC_MSG_CHECKING([whether we are on Oracle C compiler])
+## Oracle Developer Studio on Solaris fails with gFortran...
+AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,[
+#ifndef __SUNPRO_C
+  choke me
+#endif
+  ])], [ac_odsc=yes])
+AC_MSG_RESULT([${ac_odsc}])
+
+
 ## If autoconf has found a working OpenMP flag than we compile
 ## a .c file and a .f90 file, and link them together. The C
 ## file has OpenMP threading which calls Fortran, which in turn
 ## calls BLAS.
 ac_pkg_openmp=no
-if test -n "${OPENMP_CFLAGS}"; then
+if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no; then
   AC_LANG_CONFTEST([AC_LANG_SOURCE([[
     #include <omp.h>
     #include <R.h>
@@ -44,7 +55,7 @@ if test -n "${OPENMP_CFLAGS}"; then
     #include <string.h>
     extern void fort_blastest_(int*, double*, double*, double*);
     static unsigned int g_seed = 12345U;
-    static int siz = 500, nloops = 1000, correct = 1, *ret;
+    static int siz = 100, nloops = 65, correct = 1, *ret;
     static double *Ac = 0;
     #pragma omp threadprivate(Ac)
     void myrand(double *x) {
@@ -146,17 +157,6 @@ end module
   "$RBIN" CMD SHLIB conftest_c.c conftest.f90 -o conftest.so 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && "$RBIN" --vanilla -q -e "dyn.load(paste('conftest',.Platform\$dynlib.ext,sep='')); quit(save='no', status=.Call('rblastest_ABCDE'), runLast=FALSE)" 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && ac_pkg_openmp=yes
   AC_MSG_RESULT([${ac_pkg_openmp}])
 fi
-
-ac_odsc=no
-AC_MSG_CHECKING([whether we are on Oracle C compiler])
-## Oracle Developer Studio on Solaris fails with gFortran...
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,[
-#ifndef __SUNPRO_C
-  choke me
-#endif
-  ])], [ac_odsc=yes])
-AC_MSG_RESULT([${ac_odsc}])
-
 
 if test "${ac_odsc}" = yes; then
   PRAG1="#undef __PRAGMA__"

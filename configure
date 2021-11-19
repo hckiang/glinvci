@@ -2527,12 +2527,39 @@ HACKY_OMPCFLAGS="${OPENMP_CFLAGS}"
 RFLIBSFLAGS=`"${RBIN}" CMD config FLIBS`
 RSAFEFFLAGS=`"${RBIN}" CMD config SAFE_FFLAGS`
 
+ac_odsc=no
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether we are on Oracle C compiler" >&5
+$as_echo_n "checking whether we are on Oracle C compiler... " >&6; }
+## Oracle Developer Studio on Solaris fails with gFortran...
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+#ifndef __SUNPRO_C
+  choke me
+#endif
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_odsc=yes
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${ac_odsc}" >&5
+$as_echo "${ac_odsc}" >&6; }
+
+
 ## If autoconf has found a working OpenMP flag than we compile
 ## a .c file and a .f90 file, and link them together. The C
 ## file has OpenMP threading which calls Fortran, which in turn
 ## calls BLAS.
 ac_pkg_openmp=no
-if test -n "${OPENMP_CFLAGS}"; then
+if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no; then
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -2543,7 +2570,7 @@ if test -n "${OPENMP_CFLAGS}"; then
     #include <string.h>
     extern void fort_blastest_(int*, double*, double*, double*);
     static unsigned int g_seed = 12345U;
-    static int siz = 500, nloops = 1000, correct = 1, *ret;
+    static int siz = 100, nloops = 65, correct = 1, *ret;
     static double *Ac = 0;
     #pragma omp threadprivate(Ac)
     void myrand(double *x) {
@@ -2923,33 +2950,6 @@ $as_echo_n "checking whether BLAS works correctly with OpenMP... " >&6; }
   { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${ac_pkg_openmp}" >&5
 $as_echo "${ac_pkg_openmp}" >&6; }
 fi
-
-ac_odsc=no
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether we are on Oracle C compiler" >&5
-$as_echo_n "checking whether we are on Oracle C compiler... " >&6; }
-## Oracle Developer Studio on Solaris fails with gFortran...
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-int
-main ()
-{
-
-#ifndef __SUNPRO_C
-  choke me
-#endif
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"; then :
-  ac_odsc=yes
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${ac_odsc}" >&5
-$as_echo "${ac_odsc}" >&6; }
-
 
 if test "${ac_odsc}" = yes; then
   PRAG1="#undef __PRAGMA__"
