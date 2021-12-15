@@ -1,5 +1,0 @@
-# -*- Makefile -*-
-PKG_CFLAGS= 
-PKG_LIBS= $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) # `pkg-config --silence-errors --libs tcmalloc`
-OBJECTS=phytr.o dglinv.o oumods.o chn.o test_ieee_fort.o test_ieee_c.o
-
