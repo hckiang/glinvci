@@ -52,12 +52,23 @@ case "${ac_myos}" in
 esac
 AC_MSG_RESULT([${ac_myos}])
 
+AC_MSG_CHECKING([whether we are linking to OpenBLAS])
+ac_isopenblas=no
+case "${RBLAS}" in
+  *openblas*) ac_isopenblas=yes ;;
+  *)          ac_isopenblas=no  ;;
+esac
+AC_MSG_RESULT([${ac_isopenblas}])
+if test "${ac_isopenblas}" = yes; then
+  AC_MSG_WARN([Turning off multi-threading for safety because OpenBLAS may not be thread-safe.])
+fi
+
 ## If autoconf has found a working OpenMP flag than we compile
 ## a .c file and a .f90 file, and link them together. The C
 ## file has OpenMP threading which calls Fortran, which in turn
 ## calls BLAS.
 ac_pkg_openmp=no
-if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no && test "${ac_sol}" = no; then
+if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no && test "${ac_sol}" = no && test "${ac_isopenblas}" = no; then
   AC_LANG_CONFTEST([AC_LANG_SOURCE([[
     #include <omp.h>
     #include <R.h>
@@ -182,7 +193,7 @@ if test "${ac_odsc}" = yes; then
   OMPFLAGS="-xopenmp=none"
   XTRA_CFLAGS="-xO1"
 else
-  if test "${ac_sol}" = yes; then
+  if test "${ac_sol}" = yes || test "${ac_isopenblas}" = yes; then
     PRAG1="#undef __PRAGMA__"
     PRAG2="#define __PRAGMA__(x)"
     CINF1="#undef __TESTED__"
