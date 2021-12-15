@@ -15,3 +15,4 @@ src/*/*.dll
 config.status
 conftest*
 autom4te.cache
+tests/testthat/_snaps

@@ -25,6 +25,7 @@ CC=`"${RBIN}" CMD config CC`
 FC=`"${RBIN}" CMD config FC`
 CFLAGS=`"${RBIN}" CMD config CFLAGS`
 FCFLAGS=`"${RBIN}" CMD config FCFLAGS`
+RLAPACK=`"${RBIN}" CMD config LAPACK_LIBS`
 RBLAS=`"${RBIN}" CMD config BLAS_LIBS`
 HACKY_OMPCFLAGS="${OPENMP_CFLAGS}"
 RFLIBSFLAGS=`"${RBIN}" CMD config FLIBS`
@@ -41,12 +42,22 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,[
 AC_MSG_RESULT([${ac_odsc}])
 
 
+## Get OS from R
+ac_myos=`"${RBIN}" -s -e 'cat(Sys.info()[["sysname"]])'`
+ac_sol=no
+AC_MSG_CHECKING([operating system])
+case "${ac_myos}" in
+  *SunOS*) ac_sol=yes ;;
+  *)       ac_sol=no  ;;
+esac
+AC_MSG_RESULT([${ac_myos}])
+
 ## If autoconf has found a working OpenMP flag than we compile
 ## a .c file and a .f90 file, and link them together. The C
 ## file has OpenMP threading which calls Fortran, which in turn
 ## calls BLAS.
 ac_pkg_openmp=no
-if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no; then
+if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no && test "${ac_sol}" = no; then
   AC_LANG_CONFTEST([AC_LANG_SOURCE([[
     #include <omp.h>
     #include <R.h>
@@ -55,7 +66,7 @@ if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no; then
     #include <string.h>
     extern void fort_blastest_(int*, double*, double*, double*);
     static unsigned int g_seed = 12345U;
-    static int siz = 100, nloops = 65, correct = 1, *ret;
+    static int siz = 100, nloops = 70, correct = 1, *ret;
     static double *Ac = 0;
     #pragma omp threadprivate(Ac)
     void myrand(double *x) {
@@ -118,6 +129,7 @@ contains
     allocate(TMP(k,k))
     TMP(:,:) = 0.0_c_double
     call dgemm('N','N',k,k,k,1.0_c_double,A,k,B,k,0.0_c_double,TMP,k)
+    call dger(k, k, 1.0_c_double, A(1,1), 1, B(1,1), k, TMP, k)
     call dgemm('N','N',k,k,k,1.0_c_double,A,k,TMP,k,0.0_c_double,R,k)
     deallocate(TMP)
   end subroutine
@@ -130,7 +142,7 @@ end module
   ## 1. We'll need to move conftest.c to some other names because
   ##      R CMD SHLIB conftest.c conftest.f90
   ##    will make R do this: gcc -shared conftest.o conftest.o.
-  ##    This is an R bug.
+  ##    This is (arguably) an R "bug".
   ##
   ## 2. Even if in the package building phase R decides to define _OPENMP and provide
   ##    an non-empty SHLIB_OPENMP_CFLAGS, the command `R CMD SHLIB' may not use -fopenmp
@@ -140,8 +152,9 @@ end module
   ## 3. Windows users usually have working BLAS/OpenMP combination unless they do
   ##    something funny themselves.
   ##
-  ## 4. This test has detected Rhub CentOS's BLAS being non-thread-safe! That is why
-  ##    testthat fails in `R CMD check' on the platform.
+  ## 4. This test has detected (before) that Rhub CentOS's BLAS being non-thread-safe!
+  ##    Now this test doesn't detect anything there anymore, but something still seems 
+  ##    fishy in their OpenBLAS library.
   ## 
   ## 5. If we compile the test program using the $CC and $FC directly and replace the
   ##    R entry point `rblastest_ABCDE' with `int main()' it will still work
@@ -153,39 +166,56 @@ end module
   mv conftest.c conftest_c.c
   ##$CC $CFLAGS $HACKY_OMPCFLAGS -c conftest.c -o conftest_c.o && $FC $RSAFEFFLAGS $FCFLAGS -c conftest.f90 -o conftest_f.o && $CC $CFLAGS conftest_c.o conftest_f.o $HACKY_OMPCFLAGS $RLAPACK $RBLAS $RFLIBSFLAGS $RLIB -o ./conftest.exe && ./conftest.exe 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && ac_pkg_openmp=yes
   export PKG_CFLAGS="${HACKY_OMPCFLAGS}"
-  export PKG_LIBS="${RBLAS} ${HACKY_OMPCFLAGS}"
+  export PKG_LIBS="${RLAPACK} ${RBLAS} ${HACKY_OMPCFLAGS}"
   "$RBIN" CMD SHLIB conftest_c.c conftest.f90 -o conftest.so 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && "$RBIN" --vanilla -q -e "dyn.load(paste('conftest',.Platform\$dynlib.ext,sep='')); quit(save='no', status=.Call('rblastest_ABCDE'), runLast=FALSE)" 1>&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD && ac_pkg_openmp=yes
   AC_MSG_RESULT([${ac_pkg_openmp}])
 fi
 
+## Oracle's compilers do some thread-safety-breaking optimization on MATMUL etc.
+## See: https://docs.oracle.com/cd/E77782_01/html/E77783/gnxbp.html
+
 if test "${ac_odsc}" = yes; then
   PRAG1="#undef __PRAGMA__"
   PRAG2="#define __PRAGMA__(x)"
+  CINF1="#undef __TESTED__"
+  CINF2="#define __TESTED__ 1"
   OMPFLAGS="-xopenmp=none"
   XTRA_CFLAGS="-xO1"
 else
-  if test "${ac_pkg_openmp}" = no; then
-    if test "${OPENMP_CFLAGS}"; then
-      AC_MSG_WARN([OpenMP works on your C compiler but your default BLAS obtained by "R CMD config BLAS_LIBS" has failed the thread-safety test. Turned off OpenMP multi-threading.])
-    else
-      AC_MSG_WARN([OpenMP is turned off manually or it does not work with your C compiler. Turning off OpenMP multi-threading.])
-    fi
+  if test "${ac_sol}" = yes; then
     PRAG1="#undef __PRAGMA__"
     PRAG2="#define __PRAGMA__(x)"
+    CINF1="#undef __TESTED__"
+    CINF2="#define __TESTED__ 1"
     OMPFLAGS=""
     XTRA_CFLAGS=""
   else
-    PRAG1=""
-    PRAG2=""
-    OMPFLAGS='$(SHLIB_OPENMP_CFLAGS)'
-    XTRA_CFLAGS=""
-  fi  
+    if test "${ac_pkg_openmp}" = no; then
+      if test "${OPENMP_CFLAGS}"; then
+        AC_MSG_WARN([OpenMP works on your C compiler but your default BLAS obtained by "R CMD config BLAS_LIBS" has failed the thread-safety test. Turned off OpenMP multi-threading.])
+      else
+        AC_MSG_WARN([OpenMP is turned off manually or it does not work with your C compiler. Turning off OpenMP multi-threading.])
+      fi
+      PRAG1="#undef __PRAGMA__"
+      PRAG2="#define __PRAGMA__(x)"
+      OMPFLAGS=""
+      XTRA_CFLAGS=""
+    else
+      PRAG1=""
+      PRAG2=""
+      OMPFLAGS='$(SHLIB_OPENMP_CFLAGS)'
+      XTRA_CFLAGS=""
+    fi
+    CINF1=""
+    CINF2=""
+  fi
 fi
-
 AC_SUBST(MYPRAGMA1, [${PRAG1}])
 AC_SUBST(MYPRAGMA2, [${PRAG2}])
+AC_SUBST(CONFINFO1, [${CINF1}])
+AC_SUBST(CONFINFO2, [${CINF2}])
 AC_SUBST(OMPFLAGS, [${OMPFLAGS}])
 AC_SUBST(XTRA_CFLAGS, [${XTRA_CFLAGS}])
-AC_CONFIG_FILES([src/my_pragma.h src/Makevars])
+AC_CONFIG_FILES([src/my_pragma.h src/Makevars src/my_confinfo.h])
 AC_OUTPUT
 

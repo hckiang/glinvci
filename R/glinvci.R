@@ -17,7 +17,7 @@ NULL
 ## This needs to be put in NAMESPACE via @importFrom, otherwise if we use utils:: then we'll
 ## get a NOTE in CMD check complaining that the package utils is imported in DESCRIPTION but
 ## is not used.
-globalVariables('INFO__')
+globalVariables(c('INFO__', 'test_that'))
 
 ndesc = function (x, ...) UseMethod('ndesc')
 ndesc.glinv_gauss = function (self) .Call(Rndesc, self$ctree)
@@ -1093,3 +1093,8 @@ marginal_ci = function (varest_result, lvl = 0.95) {
   rownames(r) = names(varest_result$mlepar)
   r
 }
+
+test_this = function (desc, expr)
+  if (.Call(Rtested) == 1L)
+    test_that(desc, expr)
+

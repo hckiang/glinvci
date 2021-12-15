@@ -13,6 +13,9 @@
 #define __PRAGMA__(x)
 #endif
 
+#define __TESTED__ 1
+#include"my_confinfo.h"
+
 /* If including omp.h, include it AFTER Rinternals.h, because
    Rinternals.h defines a macro called match to Rf_match and
    Intel 2021 wants to expand this macro into #pragma omp begin declare variant,
@@ -595,7 +598,6 @@ size_t getvwphi_liststr(SEXP Rlist, struct node *t, int kv, double **V, double *
 }
 
 /* get_VwPhi */
-/* Need to return 0 if failed? */
 size_t getvwphi_vec(SEXP Rvec, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	double *par;
 	(void) lwsp;
@@ -1073,6 +1075,11 @@ UPDESC:
 		}
 		initgbk(&gbk, t, p, maxdim(t));
 		wkret = 0;
+		/* In OpenMP 3.1 specification, it's not explicitly written that there is an implicit
+		   flush at taskwait, but there is a flush at new task starting. So we need to flush
+		   ourselves. Also, calling flush without argument means that the malloc'd areas are
+		   also all flushed, but when called with argument only the pointers to malloc'd memory
+		   is flushed. */
 		__PRAGMA__("omp parallel shared(wkret)")
 		{
 			thrpv_bilinmat = NULL; /* Thread private. */
@@ -1094,7 +1101,7 @@ UPDESC:
 				struct node *q;
 				for (q = p->chd; q; q = q->nxtsb) {
 					wkret=hessglobwk(q, p, &gbk, x0, t, VwPhi_L, get_VwPhi, wsp, swsp, lwsp, &interrupted, extrmem, dir, ndir);
-					__PRAGMA__("omp flush(wkret, interrupted)");
+					__PRAGMA__("omp flush");
 					if (wkret || interrupted) break;
 				}
 				/* Now wait for everything to finish... */
@@ -1103,7 +1110,6 @@ UPDESC:
 			__PRAGMA__("omp flush")
 			__PRAGMA__("omp barrier")
 			if (dir) {
-				__PRAGMA__("omp flush")
 				__PRAGMA__("omp critical")
 				{
 					int k;
@@ -1195,35 +1201,33 @@ MEMFAIL:
 void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_ancestry,
 		 void *pv_starters, int pv_kv, int pv_mdim, int *interrupted, double *extrmem, double *dir, int ndir) {
 	/* Performance note:
-
 	   1. Putting the parallelisation pragma at the for loop below will slow down the compuation by half.
 	   2. I have no idea why PGI sucks so much with this piece of code. Usually PGI is quite fast,
 	      but at least the numerical output is correct and precise.
-
 	*/
+	struct {                        /* States of the inner stack */
+		int kv;
+		struct node *n, *p;
+		struct dfdqdk *dfqk1_ch;
+		struct dfdqdk *dfqk1new_ch;
+	} *stalpha;                        /* Each k has different stack states */
+	struct {
+		size_t hessptr;
+		struct node *n;
+		int knv;
+		size_t lblk;
+	} *pushback;
+	size_t lpushback, pushbackptr;
+	double *hessmem; size_t lhessmem, lblk, hessptr;
+	int q, yes;
+	struct node *z;
+	size_t swsp_a, lwsp_a;
+	void *wsp_a;
+	int c;
+	size_t b;
 	int k,j;
 	for (k=0; k < pv_i; ++k) {          /* Now run the recursion for each k (for each beta, that is) */
-		struct {                        /* States of the inner stack */
-			int kv;
-			struct node *n, *p;
-			struct dfdqdk *dfqk1_ch;
-			struct dfdqdk *dfqk1new_ch;
-		} *stalpha;                        /* Each k has different stack states */
-		struct {
-			size_t hessptr;
-			struct node *n;
-			int knv;
-			size_t lblk;
-		} *pushback;
-		size_t lpushback, pushbackptr;
-		double *hessmem; size_t lhessmem, lblk, hessptr;
-		int q, yes;
-		struct node *z;
-		size_t swsp_a, lwsp_a;
-		void *wsp_a = NULL;
-		int c;
-		size_t b;
-
+		wsp_a = NULL;
 		lpushback = 0; pushbackptr = 0;
 		lhessmem = 0; lblk = 0; hessptr = 0;
 
@@ -1245,7 +1249,10 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 		/* In C11, POSIX.1-2008, glibc >= 2.15, musl, and Microsoft, malloc() and free() is thread safe.
 		   Everybody is assuming this nowadays. But don't use something like PGI's -Mipa=inline etc.
 		   to mess with the libc binary...  */
-		if (! (wsp_a = malloc(lwsp_a))) return; /* Leaks tiny amount of memory. */
+		if (! (wsp_a = malloc(lwsp_a))) {
+			/* What to do when out of memory here...? */
+			return;
+		}
 		memset(wsp_a, 0, lwsp_a);
 		stalpha  =wsp_a;
 		hessmem  =(void*)((char*)wsp_a+swsp_a); swsp_a +=lhessmem; /* Skip swsp_a to leave room for the stack. */
@@ -1291,8 +1298,8 @@ DOWNALPHA:
 #define KMU (pv_ancestry[pv_i]->ndat.ku)
 			lblk = PAIR_HESS_SIZE(KNV,KNU,KMV,KMU);
 			if (pushbackptr % 64) {
-					__ATOMIC_READ__
-						yes = *interrupted;
+				__ATOMIC_READ__
+					yes = *interrupted;
 				if (yes) {
 					free(wsp_a);
 					for (j=0; j<pv_i; ++j) deldfqk((void*)((char*)pv_starters+DFQKSIZ*j));
@@ -1489,16 +1496,15 @@ DOWNGLOB:
 		ancestry[k] = stglob[k].m;
 		ndesc_sum += ancestry[k]->ndat.ndesc;
 	}
-
-	__PRAGMA__("omp task firstprivate(rt,x0,i,ancestry,starters,curglob,extrmem,interrupted,dir,ndir) if (ndesc_sum > 40)")
+	/* Implicit everything-flush by OpenMP 3.1 specification. */
+	__PRAGMA__("omp task firstprivate(rt,x0,i,ancestry,starters,curglob,mdim,extrmem,interrupted,dir,ndir) if (ndesc_sum > 40)")
 	walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
-
 	if (err) goto MEMFAIL;
 	if (!(curglob.m->chd)) {
+		//__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. */
 		if (i != 1) goto UPGLOB;    /* "Return" to the upper-level recursion */
 		else        goto DONE;	    /* This is the top level, quit entire the function */
 	}
-
 	if ((depth%10) && my_rchk()) goto MASTER_INTERRUPTED;
 	/* Now walk down the n, fixing m. The following line does the first step downward. */
 	/* if(!allocdfqk(rt->ndat.ku, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.m->ndat.ku, curglob.kv, dfqk1new_ch)) */
@@ -1508,6 +1514,10 @@ DOWNGLOB:
 		   curglob.gbk->fm->dat, curglob.gbk->qm->dat, curglob.m->ndat.Lamb, curglob.m->ndat.invV,
 		   curglob.m->u.hnbk.u.hsbkgen.invVLsOPhi,
 		   &(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), dfqk1new_ch);
+	//__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. Move this above tndown1st_ to see what happens.
+	//                              If BLAS calls in tndown1st_ is replaced by matmul etc. results
+	//                              indicating something thread-wrong is going on when using their
+	//                              OpenBLAS .so file. */
 	free(K);           K=NULL;
 	deldfqk(dfqk1_ch);
 	free(dfqk1_ch);    dfqk1_ch=NULL;
@@ -1528,6 +1538,7 @@ DOWNGLOB:
 DOWNDESC:
 			/* HESS_WRITE */
 			if (dir) {
+				/* This may be the culprit!!? But it's thread private to the master thread! */
 				//printf("NODE_ID: %d-%d (E)\n", curglob.m->id+1, curdesc.n->id+1);
 				tntmdir_(&(rt->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1_ch,
 					 curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
@@ -1597,6 +1608,7 @@ DONE:
 	goto SUCCESS;
 MEMFAIL:
 	{ /* You have to wrap this line with that curly braces to stop GCC from complaining. */
+		__PRAGMA__("omp flush")
 		__PRAGMA__("omp taskwait")
 	}
 	free(stglob);
@@ -1606,6 +1618,7 @@ MEMFAIL:
 	return 3;
 STACKFAIL:
 	{
+		__PRAGMA__("omp flush")
 		__PRAGMA__("omp taskwait")
 	}
 	free(stglob);
@@ -2246,6 +2259,15 @@ SEXP Rdeschpos(SEXP tr, SEXP Rx, SEXP Ry) {
 	findhpos(t, yl-1, dptr+2, dptr+3);
 	UNPROTECT(1);
 	return desc;
+}
+
+SEXP Rtested() {
+	SEXP ret; int *x;
+	ret = PROTECT(allocVector(INTSXP, 1));
+	x = INTEGER(ret);
+	*x = __TESTED__;
+	UNPROTECT(1);
+	return ret;
 }
 
 /*
@@ -3203,6 +3225,7 @@ static const R_CallMethodDef callMethods[]  = {
 	{"Rvwphi_paradr",        (DL_FUNC) &Rvwphi_paradr,        1},
 	{"Rtagmiss",             (DL_FUNC) &Rtagmiss,             3},
 	{"Rtagreg",              (DL_FUNC) &Rtagreg,              3},
+	{"Rtested",              (DL_FUNC) &Rtested,              0},
 	{"glinvtestfloatIEEE02", (DL_FUNC) &glinvtestfloatIEEE02, 1},
 	{NULL, NULL, 0}
 };

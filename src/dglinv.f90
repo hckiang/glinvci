@@ -1198,7 +1198,7 @@ contains
   recursive subroutine initfalfm_beta(falfm_c, fmg_c, kbu, kmv) bind(C, name="initfalfm_beta_")
     implicit none
     integer(c_int) :: kbu, kmv
-    type(c_ptr), intent(in) :: falfm_c, fmg_c
+    type(c_ptr) :: falfm_c, fmg_c
     type(c_ptr) :: i_c
     type(llst), pointer :: falfm_p, fmg_p
     real(c_double), pointer :: lamb_beta(:,:)
@@ -1221,9 +1221,9 @@ contains
   recursive subroutine updategbk(kv, ku, fmlfm_c, fmlfm_new, fm_c, fm_new, qm_c, qm_new, &
        & Lamb, HPhi, a, mdim)  bind(C, name="updategbk_")
     implicit none
-    integer(c_int), intent(in) :: kv,ku, mdim
-    type(c_ptr), intent(in) :: fmlfm_c, fm_c, qm_c
-    real(c_double), intent(in) :: Lamb(ku,ku), HPhi(ku,kv), a(ku)
+    integer(c_int) :: kv,ku, mdim
+    type(c_ptr) :: fmlfm_c, fm_c, qm_c
+    real(c_double) :: Lamb(ku,ku), HPhi(ku,kv), a(ku)
     type(c_ptr) :: fmlfm_new, fm_new, qm_new
 !   type(c_ptr), intent(out) :: fmlfm_new, fm_new, qm_new
     type(llst), pointer :: tmp_p
@@ -1617,8 +1617,8 @@ contains
        & dfqk1, k)
     implicit none
     type(dfdqdk), intent(inout) :: dfqk1
-    type(c_ptr),    intent(in)  :: a_c, fmlfm_c, qm_c, fm_c
-    integer(c_int), intent(in)  :: ku, kv, kr
+    type(c_ptr)  :: a_c, fmlfm_c, qm_c, fm_c
+    integer(c_int)  :: ku, kv, kr
     type(llstptr), pointer :: a_p
     type(llst),    pointer :: fm_p,   fmlfm_p,   qm_p
     real(c_double), pointer :: a(:), fm(:,:), qm(:), fmlfm(:,:), tailsum_fmlfm(:,:)
@@ -1842,7 +1842,7 @@ contains
     !! dv
     do n=1,ku
        do m=1,ku
-          call dger(ku,kr,-1.0_c_double,LsolV(:,m),1_c_int,solVLsOPhi(n,1),ku,dfqk1%dfdv(:,:,m,n),ku)
+          call dger(ku,kr,-1.0_c_double,LsolV(1,m),1_c_int,solVLsOPhi(n,1),ku,dfqk1%dfdv(1,1,m,n),ku)
           !dfqk1%dfdv(:,:,m,n) = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
        enddo
     enddo
@@ -1853,7 +1853,7 @@ contains
     enddo
     do n=1,ku
        do m=1,ku
-          call dger(ku,ku,1.0_c_double,LsolV(:,m),1_c_int,LsolV(:,n),1_c_int,dfqk1%dkdv(:,:,m,n),ku)
+          call dger(ku,ku,1.0_c_double,LsolV(1,m),1_c_int,LsolV(1,n),1_c_int,dfqk1%dkdv(1,1,m,n),ku)
           !dfqk1%dkdv(:,:,m,n) = matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
        enddo
     enddo
@@ -1896,7 +1896,7 @@ contains
     do n=1,ku
        do m=1,ku
           dfmmp1 = 0.0_c_double
-          call dger(ku, kv, -1.0_c_double, LsolV(1,m), 1_c_int, solVLsOPhi(n,1), ku, dfmmp1, ku)
+          call dger(ku, kv, -1.0_c_double, LsolV(1,m), 1_c_int, solVLsOPhi(n,1), ku, dfmmp1(1,1), ku)
           
           !! K1m = sum_1^{m-1} {F{i+1}m Li F{i+1}m}
           !! K1n = sum_1^m {F{i+1}{m+1} Li F{i+1}{m+1}}
@@ -1913,12 +1913,14 @@ contains
                 dfqk1new%dkdv(ii,jj,m,n) = dfqk1new%dkdv(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
              end do
           end do
-          call dger(ku,ku,1.0_c_double, LsolV(:,m),1_c_int,LsolV(:,n),1_c_int,dfqk1new%dkdv(:,:,m,n),ku)
+          call dger(ku,ku,1.0_c_double, LsolV(1,m),1_c_int,LsolV(1,n),1_c_int,dfqk1new%dkdv(1,1,m,n),ku)
 
           call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdv(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
           call dgemm('N','N',ku,kr,kv,1.0_c_double,dfmmp1,ku,f1m,kv,1.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
 
-          dfqk1new%dqdv(:,m,n) = solVaw(n)*LsolV(:,m)
+          do jj = 1,ku
+            dfqk1new%dqdv(jj,m,n) = solVaw(n)*LsolV(jj,m)
+          end do
           call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdv(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
           call dgemv('N',ku,kv,1.0_c_double,dfmmp1,ku,q1m,1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
 
@@ -1936,7 +1938,7 @@ contains
           call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
           call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdphi(:,:,m,n),ku)
           tmpkvku = 0.0_c_double
-          call dger(kv, ku, 1.0_c_double, K(1,n), 1_c_int, H(1,m), 1_c_int, tmpkvku, kv)
+          call dger(kv, ku, 1.0_c_double, K(1,n), 1_c_int, H(1,m), 1_c_int, tmpkvku(1,1), kv)
           call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
           do jj = 1,ku
              do ii = 1,ku
@@ -1944,8 +1946,11 @@ contains
              end do
           end do
           call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdphi(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdphi(:,:,m,n),ku)
-          call dger(ku,kr,1.0_c_double,H(1,m),1_c_int,f1m(n,1),kv,dfqk1new%dfdphi(:,:,m,n),ku)
-          dfqk1new%dqdphi(:,m,n) = q1m(n) * H(:,m)
+          call dger(ku,kr,1.0_c_double,H(1,m),1_c_int,f1m(n,1),kv,dfqk1new%dfdphi(1,1,m,n),ku)
+          do jj=1,ku
+            dfqk1new%dqdphi(jj,m,n) = q1m(n) * H(jj,m)
+          end do
+          
           call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdphi(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdphi(:,m,n),1_c_int)
 !         extrakterm = matmul(HPhi, matmul(K(:,n:n), transpose(H(:,m:m))))
 !         dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi)) &
@@ -1968,9 +1973,9 @@ contains
   recursive subroutine initfqk4b(dfqk1_ch, fmg_c, qmg_c, falfm_c, f1a, q1a, a_c, nk, kr, kav, kmv, kmu, &
        & dodvev, dodphiev, dgamdvev, dgamdwev, dgamdphiev) bind(C, name="initfqk4b_")
     implicit none
-    type(c_ptr),    intent(in) :: falfm_c, qmg_c, fmg_c, a_c
-    integer(c_int), intent(in) :: nk, kr, kav, kmv, kmu
-    real(c_double), intent(in) :: dodvev(kmv,kmv,kmu,kmu), dodphiev(kmv,kmv,kmu,kmv), dgamdvev(kmv,kmu,kmu), &
+    type(c_ptr) :: falfm_c, qmg_c, fmg_c, a_c
+    integer(c_int) :: nk, kr, kav, kmv, kmu
+    real(c_double) :: dodvev(kmv,kmv,kmu,kmu), dodphiev(kmv,kmv,kmu,kmv), dgamdvev(kmv,kmu,kmu), &
          & dgamdwev(kmv,kmu), dgamdphiev(kmv,kmu,kmv), f1a(kav,kr), q1a(kav)
     type(c_ptr) ::  i_c,j_c,r_c,k_c
     type(dfdqdkCMEM), intent(inout) :: dfqk1_ch
@@ -2145,11 +2150,11 @@ contains
     ! HPhi is the HPhi of beta so we can call it the falfm of the (simultaneously) all the alpha which
     ! are direct children of beta
     implicit none
-    integer(c_int), intent(in) :: nk, kr, kbu, kbv, kmv, mdim
-    real(c_double), intent(in) :: HPhi(kbu, kbv), a(kbu)
+    integer(c_int) :: nk, kr, kbu, kbv, kmv, mdim
+    real(c_double) :: HPhi(kbu, kbv), a(kbu)
     real(c_double), target, intent(inout) :: f1a(mdim*mdim), q1a(mdim)
     type(c_ptr), intent(inout) :: falfm_c, falfm_new
-    type(c_ptr), intent(in) :: fmg_c
+    type(c_ptr)  :: fmg_c
     integer(c_int) :: j
     type(c_ptr) :: i_c
     type(llst), pointer :: tmp_p, fmg_p

@@ -67,7 +67,7 @@ contains
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
     real(c_double), pointer  :: tmp(:,:)
-    external dtpttr
+    external dtpttr, dgemm
     if (lwsp < k*k) then
       call rwarn("dunchol: workspace too small.")
     endif
@@ -116,6 +116,7 @@ contains
     target :: zwsp
     real(c_double), pointer :: tmp(:,:), A2(:,:)
     complex(c_double_complex), pointer :: ztmp(:,:)
+    external dgeev, zgetrf, zgetri, rwarn
     if (lwsp < 2*k*k) then
       call rwarn("zeiginv: workspace too small.")
     endif
@@ -248,11 +249,12 @@ contains
     dimension sig(k,k), P(k,k), invP(k,k), Lambda(k), V((k*(k+1))/2), zwsp(lzwsp), wsp(lwsp)
     target zwsp
     complex(c_double_complex), pointer :: ztmp(:,:), ztmp2(:,:)
+    external zwarn
     if (lwsp < k*k) then
-      call rwarn("zeiginv: workspace too small.")
+      call rwarn("ouv: workspace too small.")
     endif
     if (lzwsp < 2*k*k) then
-      call rwarn("zeiginv: z-workspace too small.")
+      call rwarn("ouv: z-workspace too small.")
     endif
     ztmp(1:k,1:k)  => zwsp(1:)
     ztmp2(1:k,1:k) => zwsp((k**2+1):(2*(k**2)))
@@ -548,6 +550,7 @@ contains
     complex(c_double_complex), pointer :: D(:,:), thisD(:,:), X(:,:), PsiB(:,:)
     complex(c_double_complex) :: z,c
     integer(c_int) a1,a2
+    external rwarn
     if (lwsp < 2*k*k) then
       call rwarn("dvda: workspace too small.")
     endif
@@ -636,6 +639,7 @@ contains
     dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp)
     target wsp
     real(c_double), pointer :: tmp(:,:)
+    external rwarn
     if (lwsp < k*k) then
       call rwarn("dwdtheta: workspace too small.")
     endif
@@ -659,6 +663,7 @@ contains
     dimension P(k,k), invP(k,k), Lambda(k), zwsp(lzwsp), out(k**2,k**2)
     target zwsp
     complex(c_double_complex), pointer :: D(:,:), thisD(:,:), c, z
+    external rwarn, zgeru
     if (lzwsp < k*k*k*k+k*k+2) then
       call rwarn("dphida: z-workspace too small.")
     endif
@@ -920,6 +925,7 @@ contains
     target :: zwsp, wsp, out
     complex(c_double_complex), pointer :: PsiB(:,:), igterm(:), Ka(:), Kb(:), Z(:,:), thisout(:,:)
     integer(c_int) :: a1, a2, b1, b2
+    external rwarn
     if (lwsp < 2*k*k) then
       call rwarn("hvhadir: workspace too small.")
     endif
@@ -1016,6 +1022,7 @@ contains
          & out((k*(k+1))/2,k**2,k**2)
     target :: zwsp
     complex(c_double_complex), pointer :: zout(:,:,:)
+    external rwarn
     if (lwsp < 2*k*k) then
       call rwarn("hvha: workspace too small.")
     endif
@@ -1094,6 +1101,7 @@ contains
     dimension P(ku,ku), invP(ku,ku), Lambda(ku), out(ku**2,ku**2,ku**2), zwsp(lzwsp)
     target zwsp
     complex(c_double_complex), pointer :: dirh(:,:,:), I01, I02, fac1
+    external rwarn
     if (lzwsp < ku*ku*ku*ku*ku*ku + 3 + 2*ku*ku) then
       call rwarn("hphiha: z-workspace too small.")
     endif
