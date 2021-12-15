@@ -2569,12 +2569,26 @@ esac
 { $as_echo "$as_me:${as_lineno-$LINENO}: result: ${ac_myos}" >&5
 $as_echo "${ac_myos}" >&6; }
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether we are linking to OpenBLAS" >&5
+$as_echo_n "checking whether we are linking to OpenBLAS... " >&6; }
+ac_isopenblas=no
+case "${RBLAS}" in
+  *openblas*) ac_isopenblas=yes ;;
+  *)          ac_isopenblas=no  ;;
+esac
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${ac_isopenblas}" >&5
+$as_echo "${ac_isopenblas}" >&6; }
+if test "${ac_isopenblas}" = yes; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: Turning off multi-threading for safety because OpenBLAS may not be thread-safe." >&5
+$as_echo "$as_me: WARNING: Turning off multi-threading for safety because OpenBLAS may not be thread-safe." >&2;}
+fi
+
 ## If autoconf has found a working OpenMP flag than we compile
 ## a .c file and a .f90 file, and link them together. The C
 ## file has OpenMP threading which calls Fortran, which in turn
 ## calls BLAS.
 ac_pkg_openmp=no
-if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no && test "${ac_sol}" = no; then
+if test -n "${OPENMP_CFLAGS}" && test "${ac_odsc}" = no && test "${ac_sol}" = no && test "${ac_isopenblas}" = no; then
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
@@ -2979,7 +2993,7 @@ if test "${ac_odsc}" = yes; then
   OMPFLAGS="-xopenmp=none"
   XTRA_CFLAGS="-xO1"
 else
-  if test "${ac_sol}" = yes; then
+  if test "${ac_sol}" = yes || test "${ac_isopenblas}" = yes; then
     PRAG1="#undef __PRAGMA__"
     PRAG2="#define __PRAGMA__(x)"
     CINF1="#undef __TESTED__"
