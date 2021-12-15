@@ -1881,6 +1881,7 @@ contains
     dimension H(ku,ku), K(kv,kv), HPhi(ku,kv), f1m(kv,kr), Lamb(ku,ku), solV(ku,ku), solVLsOPhi(ku,kv), &
          & q1m(kv),w(ku),a(ku)
     real(c_double), allocatable :: dfmmp1(:,:), extrakterm(:,:), solVaw(:), LsolV(:,:), tmpkvku(:,:)
+    external dgemm, dger, dgemv
     allocate(dfmmp1(ku,kv), extrakterm(ku,ku), solVaw(ku), LsolV(ku,ku), tmpkvku(kv,ku))
     ! In dfqk1, f1n and q1n is intentionally undefined.
     call read_dfqk(dfqk1new_ch, dfqk1new)
@@ -1987,7 +1988,7 @@ contains
     type(llst), pointer :: fmg_p, qmg_p, falfm_p
     type(llstptr), pointer :: a_p
     real(c_double), pointer :: a(:), fmg(:,:), qmg(:), falfm(:,:)
-
+    external dgemv, dgemm
     allocate(stfmg(1660000), sta(1660000), stfalfm(1660000), stfalfm_nxt(1660000))     ! 50 MBs. 
     call read_dfqk(dfqk1_ch, dfqk1)
     dfqk1%kr = kr
@@ -2160,6 +2161,7 @@ contains
     type(llst), pointer :: tmp_p, fmg_p
     real(c_double), pointer :: dcur(:,:), dnew(:,:), fmg(:,:)
     real(c_double), allocatable :: tmpkbukr(:,:), tmpkbukmv(:,:)
+    external dgemm, dgemv
     allocate(tmpkbukr(kbu,kr), tmpkbukmv(kbu,kmv))
 
     ! Everything in falfm needs to be multiplied by HPhi
