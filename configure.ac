@@ -129,7 +129,7 @@ contains
     allocate(TMP(k,k))
     TMP(:,:) = 0.0_c_double
     call dgemm('N','N',k,k,k,1.0_c_double,A,k,B,k,0.0_c_double,TMP,k)
-    call dger(k, k, 1.0_c_double, A(1,1), 1, B(1,1), k, TMP, k)
+    call dger(k, k, 1.0_c_double, A(1,1), 1, B(1,1), k, TMP(1,1), k)
     call dgemm('N','N',k,k,k,1.0_c_double,A,k,TMP,k,0.0_c_double,R,k)
     deallocate(TMP)
   end subroutine

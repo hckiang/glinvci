@@ -1501,7 +1501,7 @@ DOWNGLOB:
 	walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
 	if (err) goto MEMFAIL;
 	if (!(curglob.m->chd)) {
-		//__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. */
+		__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. */
 		if (i != 1) goto UPGLOB;    /* "Return" to the upper-level recursion */
 		else        goto DONE;	    /* This is the top level, quit entire the function */
 	}
@@ -1514,10 +1514,10 @@ DOWNGLOB:
 		   curglob.gbk->fm->dat, curglob.gbk->qm->dat, curglob.m->ndat.Lamb, curglob.m->ndat.invV,
 		   curglob.m->u.hnbk.u.hsbkgen.invVLsOPhi,
 		   &(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), dfqk1new_ch);
-	//__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. Move this above tndown1st_ to see what happens.
-	//                              If BLAS calls in tndown1st_ is replaced by matmul etc. results
-	//                              indicating something thread-wrong is going on when using their
-	//                              OpenBLAS .so file. */
+	__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. Move this above tndown1st_ to see what happens.
+	                              If BLAS calls in tndown1st_ is replaced by matmul etc. results
+	                              indicating something thread-wrong is going on when using their
+	                              OpenBLAS .so file. */
 	free(K);           K=NULL;
 	deldfqk(dfqk1_ch);
 	free(dfqk1_ch);    dfqk1_ch=NULL;
