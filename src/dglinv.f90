@@ -1887,11 +1887,11 @@ contains
     call read_dfqk(dfqk1new_ch, dfqk1new)
     call read_dfqk(dfqk1_ch, dfqk1)
 
-!   call dgemm('N','N',ku,ku,ku,1.0_c_double,Lamb,ku,solV,ku,0.0_c_double,LsolV,ku)
-!   dfmmp1(:,1) = a-w
-!   call dgemv('N',ku,ku,1.0_c_double,solV,ku,dfmmp1(:,1),1_c_int,0.0_c_double,solVaw,1_c_int)
-    LsolV = matmul(Lamb, solV)
-    solVaw = matmul(solV, a - w)
+    call dgemm('N','N',ku,ku,ku,1.0_c_double,Lamb,ku,solV,ku,0.0_c_double,LsolV,ku)
+    dfmmp1(:,1) = a-w
+    call dgemv('N',ku,ku,1.0_c_double,solV,ku,dfmmp1(:,1),1_c_int,0.0_c_double,solVaw,1_c_int)
+!   LsolV = matmul(Lamb, solV)
+!   solVaw = matmul(solV, a - w)
     
     ! Optimisation oppotunity: + matmul(LsolV(:,m), transpose(LsolV(:,n))) have symmetry.
     do n=1,ku
@@ -1905,69 +1905,69 @@ contains
           !! So  K1n = HPhi_m K1m HPhi_m + Lm
           !! So  d{K1n} = d{HPhi_m} K1m (HPhi_m)^T + HPhi_m d{K1m} (HPhi_m)^T + HPhi_m K1m d{HPhi_m} + d{Lm}
 
-!         call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdv(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
-!         call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdv(:,:,m,n),ku)
-!         call dgemm('N','T',kv,ku,kv,1.0_c_double,K,kv,dfmmp1,ku,0.0_c_double,tmpkvku,kv)
-!         call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
-!         do jj = 1,ku
-!            do ii = 1,ku
-!               dfqk1new%dkdv(ii,jj,m,n) = dfqk1new%dkdv(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
-!            end do
-!         end do
-!         call dger(ku,ku,1.0_c_double, LsolV(1,m),1_c_int,LsolV(1,n),1_c_int,dfqk1new%dkdv(1,1,m,n),ku)
-!
-!         call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdv(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
-!         call dgemm('N','N',ku,kr,kv,1.0_c_double,dfmmp1,ku,f1m,kv,1.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
-!
-!         do jj = 1,ku
-!           dfqk1new%dqdv(jj,m,n) = solVaw(n)*LsolV(jj,m)
-!         end do
-!         call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdv(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
-!         call dgemv('N',ku,kv,1.0_c_double,dfmmp1,ku,q1m,1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
+          call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdv(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdv(:,:,m,n),ku)
+          call dgemm('N','T',kv,ku,kv,1.0_c_double,K,kv,dfmmp1,ku,0.0_c_double,tmpkvku,kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
+          do jj = 1,ku
+             do ii = 1,ku
+                dfqk1new%dkdv(ii,jj,m,n) = dfqk1new%dkdv(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
+             end do
+          end do
+          call dger(ku,ku,1.0_c_double, LsolV(1,m),1_c_int,LsolV(1,n),1_c_int,dfqk1new%dkdv(1,1,m,n),ku)
 
-            dfmmp1 = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
-           extrakterm = matmul(HPhi, matmul(K, transpose(dfmmp1)))
-           dfqk1new%dkdv(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdv(:,:,m,n)), transpose(HPhi)) &
-                & + extrakterm + transpose(extrakterm) + matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
-           dfqk1new%dfdv(:,:,m,n) = matmul(HPhi, dfqk1%dfdv(:,:,m,n)) + matmul(dfmmp1,f1m)
-           dfqk1new%dqdv(:,m,n)   = matmul(HPhi, dfqk1%dqdv(:,m,n))   + matmul(dfmmp1,q1m) + solVaw(n)*LsolV(:,m)
+          call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdv(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
+          call dgemm('N','N',ku,kr,kv,1.0_c_double,dfmmp1,ku,f1m,kv,1.0_c_double,dfqk1new%dfdv(:,:,m,n),ku)
+
+          do jj = 1,ku
+            dfqk1new%dqdv(jj,m,n) = solVaw(n)*LsolV(jj,m)
+          end do
+          call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdv(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
+          call dgemv('N',ku,kv,1.0_c_double,dfmmp1,ku,q1m,1_c_int,1.0_c_double,dfqk1new%dqdv(:,m,n),1_c_int)
+
+!           dfmmp1 = - matmul(LsolV(:,m:m), solVLsOPhi(n:n,:))
+!          extrakterm = matmul(HPhi, matmul(K, transpose(dfmmp1)))
+!          dfqk1new%dkdv(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdv(:,:,m,n)), transpose(HPhi)) &
+!               & + extrakterm + transpose(extrakterm) + matmul(LsolV(:,m:m), transpose(LsolV(:,n:n)))
+!          dfqk1new%dfdv(:,:,m,n) = matmul(HPhi, dfqk1%dfdv(:,:,m,n)) + matmul(dfmmp1,f1m)
+!          dfqk1new%dqdv(:,m,n)   = matmul(HPhi, dfqk1%dqdv(:,m,n))   + matmul(dfmmp1,q1m) + solVaw(n)*LsolV(:,m)
        enddo
     enddo
 
     do n=1,kv
        do m=1,ku
-!         call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
-!         call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdphi(:,:,m,n),ku)
-!         tmpkvku = 0.0_c_double
-!         call dger(kv, ku, 1.0_c_double, K(1,n), 1_c_int, H(1,m), 1_c_int, tmpkvku(1,1), kv)
-!         call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
-!         do jj = 1,ku
-!            do ii = 1,ku
-!               dfqk1new%dkdphi(ii,jj,m,n) = dfqk1new%dkdphi(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
-!            end do
-!         end do
-!         call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdphi(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdphi(:,:,m,n),ku)
-!         call dger(ku,kr,1.0_c_double,H(1,m),1_c_int,f1m(n,1),kv,dfqk1new%dfdphi(1,1,m,n),ku)
-!         do jj=1,ku
-!           dfqk1new%dqdphi(jj,m,n) = q1m(n) * H(jj,m)
-!         end do
-!
-!         call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdphi(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdphi(:,m,n),1_c_int)
-          extrakterm = matmul(HPhi, matmul(K(:,n:n), transpose(H(:,m:m))))
-          dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi)) &
-               & + extrakterm + transpose(extrakterm)
-          dfqk1new%dfdphi(:,:,m,n) = matmul(HPhi, dfqk1%dfdphi(:,:,m,n)) + matmul(H(:,m:m), f1m(n:n,:))
-         dfqk1new%dqdphi(:,m,n)   = matmul(HPhi, dfqk1%dqdphi(:,m,n))   + q1m(n) * H(:,m)
+          call dgemm('N','T',kv,ku,kv,1.0_c_double,dfqk1%dkdphi(:,:,m,n),kv,HPhi,ku,0.0_c_double,tmpkvku,kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,dfqk1new%dkdphi(:,:,m,n),ku)
+          tmpkvku = 0.0_c_double
+          call dger(kv, ku, 1.0_c_double, K(1,n), 1_c_int, H(1,m), 1_c_int, tmpkvku(1,1), kv)
+          call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,tmpkvku,kv,0.0_c_double,extrakterm,ku)
+          do jj = 1,ku
+             do ii = 1,ku
+                dfqk1new%dkdphi(ii,jj,m,n) = dfqk1new%dkdphi(ii,jj,m,n) + extrakterm(ii,jj) + extrakterm(jj,ii)
+             end do
+          end do
+          call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,dfqk1%dfdphi(:,:,m,n),kv,0.0_c_double,dfqk1new%dfdphi(:,:,m,n),ku)
+          call dger(ku,kr,1.0_c_double,H(1,m),1_c_int,f1m(n,1),kv,dfqk1new%dfdphi(1,1,m,n),ku)
+          do jj=1,ku
+            dfqk1new%dqdphi(jj,m,n) = q1m(n) * H(jj,m)
+          end do
+
+          call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdphi(:,m,n),1_c_int,1.0_c_double,dfqk1new%dqdphi(:,m,n),1_c_int)
+!         extrakterm = matmul(HPhi, matmul(K(:,n:n), transpose(H(:,m:m))))
+!         dfqk1new%dkdphi(:,:,m,n) = matmul(matmul(HPhi, dfqk1%dkdphi(:,:,m,n)), transpose(HPhi)) &
+!              & + extrakterm + transpose(extrakterm)
+!         dfqk1new%dfdphi(:,:,m,n) = matmul(HPhi, dfqk1%dfdphi(:,:,m,n)) + matmul(H(:,m:m), f1m(n:n,:))
+!        dfqk1new%dqdphi(:,m,n)   = matmul(HPhi, dfqk1%dqdphi(:,m,n))   + q1m(n) * H(:,m)
        enddo
     enddo
-!   dfqk1new%dqdw = H
-!   call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdw,kv,1.0_c_double,dfqk1new%dqdw,ku)
-!   call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,f1m,kv,0.0_c_double,dfqk1new%f1n,ku)
-!   dfqk1new%q1n = a
-!   call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,q1m,1_c_int,1.0_c_double,dfqk1new%q1n,1_c_int)
-     dfqk1new%dqdw = matmul(HPhi, dfqk1%dqdw) + H
-     dfqk1new%f1n = matmul(HPhi, f1m)
-     dfqk1new%q1n = matmul(HPhi, q1m) + a
+    dfqk1new%dqdw = H
+    call dgemm('N','N',ku,ku,kv,1.0_c_double,HPhi,ku,dfqk1%dqdw,kv,1.0_c_double,dfqk1new%dqdw,ku)
+    call dgemm('N','N',ku,kr,kv,1.0_c_double,HPhi,ku,f1m,kv,0.0_c_double,dfqk1new%f1n,ku)
+    dfqk1new%q1n = a
+    call dgemv('N',ku,kv,1.0_c_double,HPhi,ku,q1m,1_c_int,1.0_c_double,dfqk1new%q1n,1_c_int)
+!    dfqk1new%dqdw = matmul(HPhi, dfqk1%dqdw) + H
+!    dfqk1new%f1n = matmul(HPhi, f1m)
+!    dfqk1new%q1n = matmul(HPhi, q1m) + a
     deallocate(dfmmp1, extrakterm, solVaw, LsolV, tmpkvku)
   end subroutine
 
