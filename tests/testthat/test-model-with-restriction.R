@@ -1,6 +1,6 @@
 
     ## THESE TESTS ARE GENERATED AUTOMATICALLY. DO NOT MODIFY.
-    test_that("With restrictions", {
+    test_this("With restrictions", {
 
 
         gen_data = function (seed, treesize, k, missing_ranges, lost_ranges) 

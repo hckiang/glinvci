@@ -1,5 +1,5 @@
     ## THESE TESTS ARE GENERATED AUTOMATICALLY. DO NOT MODIFY.
-    test_that("Without reparameterisation", {
+    test_this("Without reparameterisation", {
         gen_data = function (seed, treesize, k, missing_ranges, lost_ranges) 
 {
     RNGkind(sample.kind = "Rejection")

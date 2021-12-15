@@ -1,5 +1,4 @@
-## THESE TESTS ARE GENERATED AUTOMATICALLY. DO NOT MODIFY.
-test_that("Dynamic scoping", {
+test_this("Dynamic scoping", {
   set.seed(1)
   ntips = 200
   k     = 2                                # No. of trait dimensions

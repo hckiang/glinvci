@@ -20,13 +20,13 @@ contains
   recursive subroutine zI0(t,c,alpha,beta,r)
     complex(c_double_complex) c,r,    x,z
     if (mod2small(c) == 1) then
-       r = beta*r+alpha* cmplx(t,0.0_c_double,c_double_complex)
+       r = beta*r+alpha*cmplx(t,0.0_c_double,kind(1._c_double))
     else
        z = c*t
        x = (2.0_c_double * cosh((z - cmplx(0._c_double,3.14159265358979324_c_double, kind(1._c_double))) &
             & /2._c_double )) / (c / exp((z + cmplx(0._c_double,3.14159265358979324_c_double,kind(1._c_double)))/2._c_double))
        r = beta * r + alpha * x
-       !r = beta*r+alpha*(exp(t*c)-1.0_c_double_complex)/c
+       !r = beta * r + alpha * ((exp(t*c)-1.0_c_double)/c)
     end if
   end subroutine
   
@@ -41,7 +41,7 @@ contains
        x = (2.0_c_double * cosh((z - cmplx(0._c_double,3.14159265358979324_c_double, kind(1._c_double))) &
             & /2._c_double )) / (c / exp((z + cmplx(0._c_double,3.14159265358979324_c_double,kind(1._c_double)))/2._c_double))
        r = beta*r+alpha*((t*y - x)/c)
-       !!r = beta*r+alpha*(exp(t*c)*(c*t-1.0_c_double_complex)+1.0_c_double_complex)/(c**2.0_c_double)
+       !r = beta*r+alpha*(exp(t*c)*(c*t-1.0_c_double_complex)+1.0_c_double_complex)/(c**2.0_c_double)
     end if
   end subroutine
 
@@ -67,7 +67,10 @@ contains
     dimension sig_x((k*(k+1))/2), wsp(lwsp), sig(k,k)
     target :: wsp
     real(c_double), pointer  :: tmp(:,:)
-    external dtpttr
+    external dtpttr, dgemm
+    if (lwsp < k*k) then
+      call rwarn("dunchol: workspace too small.")
+    endif
     ! De-cholesky-ise sig_x
     tmp(1:k,1:k) => wsp(1:(k**2))
     tmp(1:k,1:k) = 0.0_c_double
@@ -86,6 +89,9 @@ contains
     target :: wsp
     real(c_double), pointer  :: tmp(:,:)
     external dtpttr, dgemm
+    if (lwsp < k*k) then
+      call rwarn("dlnunchol: workspace too small.")
+    endif
     ! De-cholesky-ise sig_x
     tmp(1:k,1:k) => wsp(1:(k**2))
     tmp(1:k,1:k) = 0.0_c_double
@@ -110,10 +116,16 @@ contains
     target :: zwsp
     real(c_double), pointer :: tmp(:,:), A2(:,:)
     complex(c_double_complex), pointer :: ztmp(:,:)
-    
+    external dgeev, zgetrf, zgetri, rwarn
+    if (lwsp < 2*k*k) then
+      call rwarn("zeiginv: workspace too small.")
+    endif
+    if (lzwsp < 2*k*k) then
+      call rwarn("zeiginv: z-workspace too small.")
+    endif
     ! Eigen-decompose the A.
     tmp(1:k,1:k) => wsp
-    A2(1:k,1:k)  => wsp((k**2+1):)
+    A2(1:k,1:k)  => wsp((k**2+1):(2*k**2))
     A2 = A
     call dgeev('N','V',k,A2,k,LR,LI,tmp,1,tmp,k,wsp(2*k**2+1),lwsp-2*k**2,info)
     if (info /= 0) then
@@ -194,6 +206,12 @@ contains
     target wsp, Phi
     real(c_double), pointer :: tmp(:,:), sig(:,:)
     external dgemv
+    if (lwsp < 12*k*k) then
+      call rwarn("d0geouvwphi: workspace too small.")
+    endif
+    if (lzwsp < 8*k*k) then
+      call rwarn("d0geouvwphi: z-workspace too small.")
+    endif
     if (eigavail==0) then
        call zeiginv(A,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info)
        if (info /= 0) return
@@ -231,8 +249,15 @@ contains
     dimension sig(k,k), P(k,k), invP(k,k), Lambda(k), V((k*(k+1))/2), zwsp(lzwsp), wsp(lwsp)
     target zwsp
     complex(c_double_complex), pointer :: ztmp(:,:), ztmp2(:,:)
+    external zwarn
+    if (lwsp < k*k) then
+      call rwarn("ouv: workspace too small.")
+    endif
+    if (lzwsp < 2*k*k) then
+      call rwarn("ouv: z-workspace too small.")
+    endif
     ztmp(1:k,1:k)  => zwsp(1:)
-    ztmp2(1:k,1:k) => zwsp((k**2+1):)
+    ztmp2(1:k,1:k) => zwsp((k**2+1):(2*(k**2)))
     ztmp = cmplx(0._c_double, 0._c_double, kind(1._c_double))
     do j=1,k
        do i=1,k
@@ -263,7 +288,7 @@ contains
 
   ! Same as chgbasis but returns the Jacobian in a packed (lower-triangular) format.
   ! See the dim. of `out'. D needs to be symmetric or result is undefined.
-  ! zwsp at least k^2.
+  ! zwsp at least k^2, wsp at least k^2.
   subroutine dpchgbasis(D,P,invP,k,zwsp,wsp,out)
     complex(c_double_complex) P, invP, zwsp, D
     dimension D(k**2,k**2), P(k,k), invP(k,k), zwsp(k**2), wsp(k**2), out((k*(k+1))/2,k**2)
@@ -288,6 +313,9 @@ contains
     dimension X(m,k**2,k**2), P(k,k), invP(k,k), zwsp(lzwsp), out(m,k**2,k**2)
     target :: zwsp
     complex(c_double_complex), pointer :: solPUBP(:,:), solPUAP(:,:)
+    if (lzwsp < 2*k*k) then
+      call rwarn("realhesschgbasis: z-workspace too small.")
+    endif
     solPUAP(1:k,1:k) => zwsp(1:(k**2))
     solPUBP(1:k,1:k) => zwsp(((k**2)+1):(2*(k**2)))
     out     = 0._c_double
@@ -342,7 +370,7 @@ contains
     enddo
   end subroutine
 
-  
+
   ! Same as realhesschgbasis, except that in this function we assume both out(j,:,:) being
   ! a symmetric matrix for each j, and out(:,a,b) is symmetric itself. In the return, out(:,a,b)
   ! is in packed format but out(:,a,b) isn't packed.
@@ -356,6 +384,9 @@ contains
     solPUAP(1:k,1:k) => zwsp(1:(k**2))
     solPUBP(1:k,1:k) => zwsp(((k**2)+1):(2*(k**2)))
     out     = 0._c_double
+    if (lzwsp < 2*(k**2)) then
+      call rwarn("dprealsymhesschgbasis: z-workspace too small.")
+    endif
     do a2 = 1,k
        do a1 = 1,k
           solPUAP = cmplx(0._c_double, 0._c_double, kind(1._c_double))
@@ -519,6 +550,13 @@ contains
     complex(c_double_complex), pointer :: D(:,:), thisD(:,:), X(:,:), PsiB(:,:)
     complex(c_double_complex) :: z,c
     integer(c_int) a1,a2
+    external rwarn
+    if (lwsp < 2*k*k) then
+      call rwarn("dvda: workspace too small.")
+    endif
+    if (lzwsp < k*k*k*k+2*k*k) then
+      call rwarn("dvda: z-workspace too small.")
+    endif
     if (eigavail==0) then
        call zeiginv(H,k,P,invP,Lambda,wsp,lwsp,zwsp,lzwsp,info)
        if (info /= 0) return
@@ -563,19 +601,15 @@ contains
     pointer :: UijLT(:,:), sig_x_unpk(:,:)
     target wsp
     external dtpttr
+    if (lwsp < 3*k*k) then
+      call rwarn("dvdsigx: workspace too small.")
+    endif
+    if (lzwsp < 2*k*k) then
+      call rwarn("dvdsigx: z-workspace too small.")
+    endif
     UijLt(1:k,1:k)      => wsp(1:)
     sig_x_unpk(1:k,1:k) => wsp((k**2+1):)
     sig_x_unpk(1:k,1:k) = 0.0_c_double
-    !
-    ! COMPILER BUG IN OPEN64-C + GFORTRAN!! If I print out sig_x everything works.
-    ! If I don't then NaN pops up out of nowhere. I don't even know where the NaN
-    ! came from because I simply printing it out solves the problem... This is not
-    ! a dtpttr blas problem because even if I implement my own dtpttr the problem
-    ! is the same. I suspect something is wrong with their implementation of bind(C)?
-    ! Or Fortran safe flags?? But if I use gfortran with gcc then everything is fine.
-    !
-    !    print *, sig_x
-    !
     call dtpttr('L',k,sig_x,sig_x_unpk,k,info)
     do i=1,k
        sig_x_unpk(i,i) = exp(sig_x_unpk(i,i))
@@ -605,6 +639,13 @@ contains
     dimension P(k,k), invP(k,k),Lambda(k), wsp(lwsp), out(k,k), zwsp(lzwsp)
     target wsp
     real(c_double), pointer :: tmp(:,:)
+    external rwarn
+    if (lwsp < k*k) then
+      call rwarn("dwdtheta: workspace too small.")
+    endif
+    if (lzwsp < k*k) then
+      call rwarn("dwdtheta: z-workspace too small.")
+    endif
     tmp(1:k,1:k) => wsp(1:(k**2))
     tmp(:,:) = 0.0_c_double
     call d0phi(t, k, P, invP, Lambda, tmp, zwsp(1:(k**2)))
@@ -622,6 +663,10 @@ contains
     dimension P(k,k), invP(k,k), Lambda(k), zwsp(lzwsp), out(k**2,k**2)
     target zwsp
     complex(c_double_complex), pointer :: D(:,:), thisD(:,:), c, z
+    external rwarn, zgeru
+    if (lzwsp < k*k*k*k+k*k+2) then
+      call rwarn("dphida: z-workspace too small.")
+    endif
     D(1:(k**2),1:(k**2)) => zwsp(1:)
     c                    => zwsp(k**4+1)
     z                    => zwsp(k**4+2)
@@ -880,6 +925,13 @@ contains
     target :: zwsp, wsp, out
     complex(c_double_complex), pointer :: PsiB(:,:), igterm(:), Ka(:), Kb(:), Z(:,:), thisout(:,:)
     integer(c_int) :: a1, a2, b1, b2
+    external rwarn
+    if (lwsp < 2*k*k) then
+      call rwarn("hvhadir: workspace too small.")
+    endif
+    if (lzwsp < 2*k*k+3*k) then
+      call rwarn("hvhadir: z-workspace too small.")
+    endif
     PsiB(1:k,1:k) => zwsp(1:(k**2))
     igterm(1:k)   => zwsp(((k**2)+1):((k**2)+k))
     Ka(1:k)       => zwsp(((k**2)+k+1):((k**2)+2*k))
@@ -970,6 +1022,13 @@ contains
          & out((k*(k+1))/2,k**2,k**2)
     target :: zwsp
     complex(c_double_complex), pointer :: zout(:,:,:)
+    external rwarn
+    if (lwsp < 2*k*k) then
+      call rwarn("hvha: workspace too small.")
+    endif
+    if (lzwsp < 4*k*k+3*k) then
+      call rwarn("hvha: z-workspace too small.")
+    endif
     zout(1:(k**2),1:(k**2),1:(k**2)) => zwsp(1:(k**6))
     call hvhadir (t,Psi,H,k,P,invP,Lambda,zout,wsp,lwsp,zwsp(((k**6)+1):lzwsp),lzwsp-(k**6),eigavail,info)
     !   call realhesschgbasis(zout,P,invP,k**2,k,zwsp(((k**6)+1):lzwsp),lzwsp-(k**6),out)
@@ -1042,6 +1101,11 @@ contains
     dimension P(ku,ku), invP(ku,ku), Lambda(ku), out(ku**2,ku**2,ku**2), zwsp(lzwsp)
     target zwsp
     complex(c_double_complex), pointer :: dirh(:,:,:), I01, I02, fac1
+    external rwarn
+    if (lzwsp < ku*ku*ku*ku*ku*ku + 3 + 2*ku*ku) then
+      call rwarn("hphiha: z-workspace too small.")
+    endif
+
     dirh(1:(ku**2),1:(ku**2),1:(ku**2)) => zwsp(1:(ku**6))
     dirh = cmplx(0.0_c_double, 0.0_c_double, kind(1._c_double))
     I01  => zwsp((ku**6)+1)
@@ -1054,24 +1118,26 @@ contains
     do a2 = 1,ku
        do a1 = 1,ku
           do b1 = 1,ku
+             !! Assume b2 == a1 here.
              call zI0(t, Lambda(b1)-Lambda(a1), 1.0_c_double, 0.0_c_double, I01)
              call zI0(t, Lambda(a1)-Lambda(a2), 1.0_c_double, 0.0_c_double, I02)
              fac1 = I01 * I02
              call zK0(t, Lambda(b1)-Lambda(a2), Lambda(a1)-Lambda(b1), -1.0_c_double, 1.0_c_double, fac1)
              fac1 = fac1 * exp(-Lambda(b1)*t)
-             do i = 1,ku
-                do j = 1,ku
+             do j = 1,ku
+                do i = 1,ku
                    dirh(i+(j-1)*ku,a1+(a2-1)*ku,b1+(a1-1)*ku) = P(i,b1) * invP(a2,j) * fac1
                 enddo
              enddo
           enddo
           
           do b2 = 1,ku
+             !! Assume b1 == a2 here.
              fac1 = cmplx(0.0_c_double, 0.0_c_double, kind(1._c_double))
              call zK0(t, Lambda(a1)-Lambda(b2), Lambda(b2)-Lambda(a2), 1.0_c_double, 0.0_c_double, fac1)
              fac1 = fac1 * exp(-Lambda(a1)*t)
-             do i = 1,ku
-                do j = 1,ku
+             do j = 1,ku
+                do i = 1,ku
                    dirh(i+(j-1)*ku,a1+(a2-1)*ku,a2+(b2-1)*ku) = dirh(i+(j-1)*ku,a1+(a2-1)*ku,a2+(b2-1)*ku) + &
                         P(i,a1) * invP(b2,j) * fac1
                 enddo
@@ -1106,6 +1172,12 @@ contains
     target :: wsp
     real(c_double), pointer :: myPsi(:,:), sig_x_unpk(:,:), UijLt(:,:)
     external dtpttr
+    if (lzwsp < 2*k*k) then
+      call rwarn("hvhl: z-workspace too small.")
+    endif
+    if (lwsp < 4*k*k) then
+      call rwarn("hvhl: workspace too small.")
+    endif
     myPsi(1:k,1:k)      => wsp(1:(k**2))
     myPsi = 0.0_c_double
     sig_x_unpk(1:k,1:k) => wsp((k**2+1):(2*(k**2)))

@@ -1,8 +1,10 @@
 ^doc$
 ^Meta$
-.git
-.gitignore
-.travis.yml
-.build.yml
-.Rd2pdf.*
+\.git
+\.gitignore
+\.travis\.yml
+\.build\.yml
+\.Rd2pdf.*
 LICENSE
+.*_snaps
+

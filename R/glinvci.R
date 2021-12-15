@@ -17,7 +17,7 @@ NULL
 ## This needs to be put in NAMESPACE via @importFrom, otherwise if we use utils:: then we'll
 ## get a NOTE in CMD check complaining that the package utils is imported in DESCRIPTION but
 ## is not used.
-globalVariables('INFO__')
+globalVariables(c('INFO__', 'test_that'))
 
 ndesc = function (x, ...) UseMethod('ndesc')
 ndesc.glinv_gauss = function (self) .Call(Rndesc, self$ctree)
@@ -84,31 +84,40 @@ set_tips.glinv       = function (mod, X)    set_tips(mod$rawmod, tip_purge(X))
 #' Simulate random trait values from the Gaussian branching process specified by \code{mod}. 
 #' 
 #'
-#' @param mod    Either a \code{glinv_gauss} or \code{glinv} object.
-#' @param par    Parameters underlying the simulation, in the same format as \code{lik.glinv_gauss} or \code{lik.glinv}.
-#' @param Nsamp  Number of sample point to simulate.
-#' @return       A list containing Nsamp elements, each of which is a length-n list, where \eqn{n} is the number of tips
-#'               containing the simulated trait values. 
+#' @param mod      Either a \code{glinv_gauss} or \code{glinv} object.
+#' @param par      Parameters underlying the simulation, in the same format as \code{lik.glinv_gauss} or \code{lik.glinv}.
+#' @param Nsamp    Number of sample point to simulate.
+#' @param simplify If TRUE, \code{rglinv.glinv} returns an Nsamp-element list with each element being a tip-trait matrix;
+#'                 otherwise, \code{rglinv.glinv} returns an Nsamp-element list with each element being an \eqn{n}-element list
+#'                 of \eqn{k}-element trait vectors, where \eqn{n} is the number of tips and \eqn{k} is the dimension of
+#'                 each trait vector.
+#' @return         A list containing Nsamp elements, each of which represents a sample point from the model \code{mod}. The
+#'                 format of each elements depends on the \code{simplify} argument.
 #' @export
-rglinv = function (mod, par, Nsamp) UseMethod('rglinv')
+rglinv = function (mod, par, Nsamp, simplify) UseMethod('rglinv')
 
 #' @rdname rglinv
 #' @export
-rglinv.glinv         = function (mod, par, Nsamp) {
+rglinv.glinv         = function (mod, par, Nsamp=1, simplify=TRUE) {
   ## TODO: either warn the user when they have missing values, or recover the original shape.
-  rglinv.glinv_gauss(mod$rawmod, mod$gaussparams_fn(par), Nsamp)
+  rglinv.glinv_gauss(mod$rawmod, mod$gaussparams_fn(par), Nsamp, simplify=simplify)
 }
 
 #' @rdname rglinv
 #' @export
-rglinv.glinv_gauss = function (mod, par, Nsamp)
-  .Call(Rvwphi_simul,
-        mod$ctree,
-        as.integer(length(mod$apetree$tip.label)),
-        as.integer(mod$dimtab),
-        as.double(par),
-        as.integer(Nsamp),
-        as.double(mod$x0))
+rglinv.glinv_gauss = function (mod, par, Nsamp=1, simplify=TRUE) {
+  if (Nsamp < 1L)
+    stop('Nsamp must be at least 1L')
+  dat = .Call(Rvwphi_simul,
+              mod$ctree,
+              as.integer(length(mod$apetree$tip.label)),
+              as.integer(mod$dimtab),
+              as.double(par),
+              as.integer(Nsamp),
+              as.double(mod$x0))
+  if (simplify) Map( function (y) Reduce(cbind, y), dat)
+  else          dat
+}
 
 clone_topology = function (ctree) .Call(R_clone_tree, ctree)
 
@@ -299,7 +308,7 @@ grad_glinv_gauss_ = function (mod, par, lik=FALSE, ...) {
 #' @export
 hess = function (mod, ...) UseMethod('hess')
 
-#' Compute the log-likelihood Hessian of full  GLInv models in the underlying Gaussian parameters
+#' Compute the log-likelihood Hessian of full GLInv models in the underlying Gaussian parameters
 #'
 #' The \code{hess.glinv_gauss} function computes the log-likelihood Hessian of a \code{glinv_gauss} models.
 #' 
@@ -539,7 +548,9 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
     dim(misstags) = c(k, nnodes)
     dimtab = rep(k, nnodes)
   }
-  rownames(misstags) = traitnames
+  if (! is.null(X))
+    rownames(misstags) = traitnames
+  
   if (!length(x0) == dimtab[tree$edge[1,1]]) 
     stop(sprintf("The dimension of `x0` must be %d but I got %d",
                  dimtab[tree$edge[1,1]], length(x0)))
@@ -878,7 +889,7 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
                                     control= list_set_default(control,
                                                               list(trace = T,
                                                                    maxit = 500000,
-                                                                   factr = 600000)))
+                                                                   factr = 250000)))
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              names(r)[which(names(r) == 'grad')]  = 'score'
@@ -928,7 +939,8 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
              r = c(r, list(score = grad(mod)(r[['mlepar']])))
              r
            }
-  names(result$mlepar) = names(parinit)
+  names(result[['mlepar']]) = names(parinit)
+  result[['loglik']]       = -result[['loglik']]
   result
 }
 
@@ -994,8 +1006,12 @@ varest.glinv = function (mod,
       stop('Invalid argument: `fitted`')
   } else
     mlepar = fitted
+  if (class(mod) != 'glinv')
+    stop('The mod parameter must be of class glinv')
   if (length(mlepar) != mod$nparams)
-    stop(sprintf("Your model should have %d parameters but I got %d", mod$nparams, length(mlepar)))
+    stop(sprintf('Your model should have %d parameters but I got %d', mod$nparams, length(mlepar)))
+  if (mode(mlepar) != 'numeric')
+    stop('The maximum likelihood parameters are not numeric?')
   jac = if (is.null(mod$parjacs))
           function (x) c(do.call(numDeriv::jacobian, c(list(mod$gaussparams_fn, x), numDerivArgs)))
         else
@@ -1077,3 +1093,8 @@ marginal_ci = function (varest_result, lvl = 0.95) {
   rownames(r) = names(varest_result$mlepar)
   r
 }
+
+test_this = function (desc, expr)
+  if (.Call(Rtested) == 1L)
+    test_that(desc, expr)
+

@@ -12,3 +12,7 @@ src/*/*.dll
 .Rhistory
 *.log
 .Rd2pdf*
+config.status
+conftest*
+autom4te.cache
+tests/testthat/_snaps
