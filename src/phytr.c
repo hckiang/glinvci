@@ -552,7 +552,7 @@ int allocdfqk(int kr, int knu, int knv, int kmu, int kmv, struct dfdqdk* D) {
 }
 void deldfqk(struct dfdqdk* D) { free(D->R); }
 
-
+/* This works but rchk doesn't like this.
 SEXP Rlistelem(SEXP Rlist, const char *key) {
     SEXP names;
     int len, i;
@@ -570,6 +570,25 @@ NOTFOUND:
 FOUND:
     UNPROTECT(2+i);
     return VECTOR_ELT(Rlist, i);
+}
+*/
+
+SEXP Rlistelem(SEXP Rlist, const char *key) {
+	SEXP names;
+	int len, i;
+	names  = PROTECT(getAttrib(Rlist, R_NamesSymbol));
+	len    = length(names);
+	for (i=0;;++i) {
+		if (i >= len)                                          goto NOTFOUND;
+		if (!strcmp(CHAR(PROTECT(STRING_ELT(names, i))), key)) goto FOUND;
+		UNPROTECT(1);
+	}
+NOTFOUND:
+	UNPROTECT(1);
+	return R_NilValue;
+FOUND:
+	UNPROTECT(2);
+	return VECTOR_ELT(Rlist, i);
 }
 
 size_t getvwphi_listnum(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
@@ -616,7 +635,7 @@ size_t getvwphi_vec(SEXP Rvec, struct node *t, int kv, double **V, double **w, d
 typedef size_t (*fn_node2siz)(struct node *t, int);
 size_t nd_node2siz (struct node *t, int kv) {
 	return (2*(t->ndat.ku)*(t->ndat.ku)+2*(t->ndat.ku)+(t->ndat.ku)*kv+2 )*sizeof(double);
-	//return (t->ndat.x ? (t->ndat.ku)*(t->ndat.ku) : 2+(t->ndat.ku)*(1+2*t->ndat.ku))*sizeof(double);
+	/* return (t->ndat.x ? (t->ndat.ku)*(t->ndat.ku) : 2+(t->ndat.ku)*(1+2*t->ndat.ku))*sizeof(double); */
 }
 size_t h_node2siz (struct node *t, int kv) {
 	size_t nd;
@@ -698,7 +717,7 @@ void ndphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_g
 	for (p=t->chd; p; p=p->nxtsb) stack_siz(p, t->ndat.ku, 0, &lwsp, &nd_node2siz);
 	lwsp += CGODBYTES(t->ndat.ku);
 	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
-	//if (! (wsp = malloc(80*1024*1024*8)))      goto MEMFAIL;
+	/* if (! (wsp = malloc(80*1024*1024*8)))      goto MEMFAIL; */
 	ZEROCGOD(wsp, c, gam, o, d, t->ndat.ku);
 	for (p = t->chd; p; p = p->nxtsb) {
 		dndgcgod(p, VwPhi_L, t->ndat.ku, c, gam, o, d, get_VwPhi, &c_ndtcgod, &c_ndmerg, wsp, CGODBYTES(t->ndat.ku), lwsp, &info);
@@ -735,7 +754,7 @@ void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 	sumnode_siz(t, t->ndat.ku, &lwsp, &difftmp_node2siz);
 	lwsp += CGODBYTES(t->ndat.ku);
 	if (! (wsp = malloc(lwsp)))      goto MEMFAIL;
-	//if (! (wsp = malloc(80*1024*1024*8)))      goto MEMFAIL;
+	/* if (! (wsp = malloc(80*1024*1024*8)))      goto MEMFAIL; */
 	swsp += difftmp(t, wsp, 0);
 	ZEROCGOD((char*)wsp+swsp, c, gam, o, d, t->ndat.ku);
 	swsp += CGODBYTES(t->ndat.ku);
@@ -977,7 +996,7 @@ int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *
 		double *w;
 		get_VwPhi(VwPhi_L, p, t->ndat.ku, NULL, &w, NULL, (char*)wsp+swsp, lwsp-swsp);
 		ictx = IVV;
-		//printf("NODE_ID: %d-%d  (A)\n", p->id+1, p->id+1);
+		/* printf("NODE_ID: %d-%d  (A)\n", p->id+1, p->id+1); */
 		for (n=1; n <= p->ndat.ku; ++n)
 			for (m=n; m <= p->ndat.ku; ++m) {
 				i=m; j=n;
@@ -1501,7 +1520,7 @@ DOWNGLOB:
 	walk_alpha (rt, x0, i, ancestry, starters, curglob.kv, mdim, interrupted, extrmem, dir, ndir);
 	if (err) goto MEMFAIL;
 	if (!(curglob.m->chd)) {
-		//__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. */
+		/*__PRAGMA__("omp taskwait") */ /* DEBUG CENTOS 8. */
 		if (i != 1) goto UPGLOB;    /* "Return" to the upper-level recursion */
 		else        goto DONE;	    /* This is the top level, quit entire the function */
 	}
@@ -1514,10 +1533,10 @@ DOWNGLOB:
 		   curglob.gbk->fm->dat, curglob.gbk->qm->dat, curglob.m->ndat.Lamb, curglob.m->ndat.invV,
 		   curglob.m->u.hnbk.u.hsbkgen.invVLsOPhi,
 		   &(rt->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), dfqk1new_ch);
-	//__PRAGMA__("omp taskwait") /* DEBUG CENTOS 8. Move this above tndown1st_ to see what happens.
-	//                              If BLAS calls in tndown1st_ is replaced by matmul etc. results
-	//                              indicating something thread-wrong is going on when using their
-	//                              OpenBLAS .so file. */
+	/* __PRAGMA__("omp taskwait") */ /* DEBUG CENTOS 8. Move this above tndown1st_ to see what happens.
+	                                If BLAS calls in tndown1st_ is replaced by matmul etc. results
+	                                indicating something thread-wrong is going on when using their
+	                                OpenBLAS .so file. */
 	free(K);           K=NULL;
 	deldfqk(dfqk1_ch);
 	free(dfqk1_ch);    dfqk1_ch=NULL;
@@ -1539,7 +1558,7 @@ DOWNDESC:
 			/* HESS_WRITE */
 			if (dir) {
 				/* This may be the culprit!!? But it's thread private to the master thread! */
-				//printf("NODE_ID: %d-%d (E)\n", curglob.m->id+1, curdesc.n->id+1);
+				/* printf("NODE_ID: %d-%d (E)\n", curglob.m->id+1, curdesc.n->id+1); */
 				tntmdir_(&(rt->ndat.ku), &(curdesc.kv), &(curdesc.n->ndat.ku), &(curglob.kv), &(curglob.m->ndat.ku), curdesc.dfqk1_ch,
 					 curdesc.n->ndat.dodv, curdesc.n->ndat.dodphi, curdesc.n->ndat.dgamdv, curdesc.n->ndat.dgamdw,
 					 curdesc.n->ndat.dgamdphi, x0,
@@ -1815,30 +1834,30 @@ int chk_VwPhi_listnum2(struct node *t, SEXP VwPhi_L, int kv, int *mode, int *err
 	}
 MODE1:  /* String indexing */
 	*mode = 1;
-	if (length(VwPhi) != 3)                      { *errcode = 91; return -(t->id); }
+	if (length(VwPhi) != 3)                      { *errcode = 91; UNPROTECT(nprot); return -(t->id); }
 	goto MORECHECKS;
 MODE2:  /* Numeric indexing */
 	*mode = 2;
-	if (length(VwPhi) != 3)                      { *errcode = 92; return -(t->id); }
+	if (length(VwPhi) != 3)                      { *errcode = 92; UNPROTECT(nprot); return -(t->id); }
 	V   = PROTECT(VECTOR_ELT(VwPhi, 0));
 	w   = PROTECT(VECTOR_ELT(VwPhi, 1));
 	Phi = PROTECT(VECTOR_ELT(VwPhi, 2));
 	nprot += 3;
 MORECHECKS:
-	if (TYPEOF(V) != REALSXP)   { *errcode = 10; return -(t->id); }
-	if (TYPEOF(w) != REALSXP)   { *errcode = 20; return -(t->id); }
-	if (TYPEOF(Phi) != REALSXP) { *errcode = 30; return -(t->id); }
+	if (TYPEOF(V) != REALSXP)   { *errcode = 10; UNPROTECT(nprot); return -(t->id); }
+	if (TYPEOF(w) != REALSXP)   { *errcode = 20; UNPROTECT(nprot); return -(t->id); }
+	if (TYPEOF(Phi) != REALSXP) { *errcode = 30; UNPROTECT(nprot); return -(t->id); }
 
 	dim = PROTECT(getAttrib(V, R_DimSymbol));
-	if (length(dim) != 2)                                                   { *errcode=11; return -(t->id); }
-	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != t->ndat.ku)) { *errcode=12; return -(t->id); }
+	if (length(dim) != 2)                                                   { *errcode=11; UNPROTECT(nprot+1); return -(t->id); }
+	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != t->ndat.ku)) { *errcode=12; UNPROTECT(nprot+1); return -(t->id); }
 	dim = PROTECT(getAttrib(w, R_DimSymbol));
-	if (!(length(dim)==0 || length(dim)==1 || length(dim)==2))              { *errcode=21; return -(t->id); }
-	if ((length(dim)==2) && (INTEGER(dim)[1] != 1))                         { *errcode=22; return -(t->id); }
-	if (length(w) != t->ndat.ku)                                            { *errcode=23; return -(t->id); }
+	if (!(length(dim)==0 || length(dim)==1 || length(dim)==2))              { *errcode=21; UNPROTECT(nprot+2); return -(t->id); }
+	if ((length(dim)==2) && (INTEGER(dim)[1] != 1))                         { *errcode=22; UNPROTECT(nprot+2); return -(t->id); }
+	if (length(w) != t->ndat.ku)                                            { *errcode=23; UNPROTECT(nprot+2); return -(t->id); }
 	dim = PROTECT(getAttrib(Phi, R_DimSymbol));
-	if (length(dim)!=2)                                                     { *errcode=31; return -(t->id); }
-	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != kv))         { *errcode=32; return -(t->id); }
+	if (length(dim)!=2)                                                     { *errcode=31; UNPROTECT(nprot+3); return -(t->id); }
+	if ((INTEGER(dim)[0] != t->ndat.ku) || (INTEGER(dim)[1] != kv))         { *errcode=32; UNPROTECT(nprot+3); return -(t->id); }
 	UNPROTECT(nprot+3);
 	for (struct node *p = t->chd; p; p=p->nxtsb)
 		if ((ans = chk_VwPhi_listnum2(p, VwPhi_L, t->ndat.ku, mode, errcode)) != 1)
@@ -1851,7 +1870,7 @@ MORECHECKS:
 int chk_VwPhi_listnum(struct node *t, SEXP VwPhi_L, int *mode, int *errcode) {
 	int ans;
 	struct node *p;
-	if (! isNull(PROTECT(VECTOR_ELT(VwPhi_L, t->id)))) return -(t->id);
+	if (! isNull(PROTECT(VECTOR_ELT(VwPhi_L, t->id)))) { UNPROTECT(1); return -(t->id); }
 	*mode = -1;
 	UNPROTECT(1);
 	for (p = t->chd; p; p=p->nxtsb) 
@@ -1960,7 +1979,8 @@ SEXP Rextractderiv(SEXP tr, SEXP nr) {
 	t = (struct node *) R_ExternalPtrAddr(tr);
 	x = PROTECT(allocVector(VECSXP, n));
 	for (p = t->chd; p; p = p->nxtsb)  extractderiv(p, t->ndat.ku, x);
-	UNPROTECT(1 + (n-1) * 4);
+	UNPROTECT(1);
+/*	UNPROTECT(1 + (n-1) * 4); */
 	return x;
 }
 
@@ -1986,6 +2006,7 @@ void extractderiv(struct node *t, int kv, SEXP x) {
 	SET_VECTOR_ELT(x, t->id, d);
 	
 	for (p = t->chd; p; p = p->nxtsb) extractderiv(p, t->ndat.ku, x);
+	UNPROTECT(4);
 	return;
 }
 
@@ -2166,7 +2187,7 @@ void vwphi_simul(struct node *t, int ntip, double *dpar, double *x0, double *wsp
 extern void vwphisimstep_(double *Phi, double *w, double *V, double *daddy, int *kv, int *ku, double *out, int *info);
 void vwphi_simulwk(struct node *t, int ntip, double *dpar, double *daddy, int kv, double *wsp, size_t swsp, SEXP out, int *info) {
 	for (int j=0; j<(t->ndat.ku); ++j)
-		wsp[swsp+j]= rnorm(0.0, 1.0); //norm_rand();
+		wsp[swsp+j]= rnorm(0.0, 1.0); /* norm_rand(); */
 	vwphisimstep_(dpar+(t->u.hnbk.Phi), dpar+(t->u.hnbk.w), dpar+(t->u.hnbk.V), daddy, &kv, &(t->ndat.ku), wsp+swsp, info);
 	if (*info != 0) {
 		if      (*info > 0)  *info = t->id+1;
@@ -3200,9 +3221,9 @@ MEMFAIL:
 }
 
 
-extern void *(glinvtestfloatIEEE01_)();
-extern void *(glinvtestfloatIEEE02)();
-extern void *(glinvtestfloatIEEE03)();
+extern void (glinvtestfloatIEEE01_)();
+extern SEXP glinvtestfloatIEEE02 (SEXP);
+extern void (glinvtestfloatIEEE03)();
 static const R_CallMethodDef callMethods[]  = {
 	{"Rparamrestrict",       (DL_FUNC) &Rparamrestrict,       4},
 	{"Rpostjacrestrict",     (DL_FUNC) &Rpostjacrestrict,     4},
@@ -3230,50 +3251,50 @@ static const R_CallMethodDef callMethods[]  = {
 	{NULL, NULL, 0}
 };
 
-extern void *(d0geouvwphi_)();
+extern void (d0geouvwphi_)();
 static R_NativePrimitiveArgType d0geouvwphi_type[] = {
 	REALSXP,INTSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,CPLXSXP,CPLXSXP,
 	CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
-extern void *(ougejac_)();
+extern void (ougejac_)();
 static R_NativePrimitiveArgType ougejac_type[] = {
 	REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,REALSXP,INTSXP};
 static R_NativePrimitiveArgType lnunchol_type[] = {
 	REALSXP, INTSXP, REALSXP, INTSXP, REALSXP, INTSXP};
-extern void *(hphiha_)();
+extern void (hphiha_)();
 static R_NativePrimitiveArgType hphiha_type[] = {
 	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP,INTSXP};
-extern void *(hvha_)();
+extern void (hvha_)();
 static R_NativePrimitiveArgType hvha_type[] = {
 	REALSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
-extern void *(hvdadl_)();
+extern void (hvdadl_)();
 static R_NativePrimitiveArgType hvdadl_type[] = {
 	REALSXP,REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP};
-extern void *(hvhl_)();
+extern void (hvhl_)();
 static R_NativePrimitiveArgType hvhl_type[] = {
 	REALSXP, INTSXP, REALSXP, CPLXSXP, CPLXSXP, CPLXSXP, REALSXP, INTSXP, CPLXSXP, INTSXP, REALSXP};
-extern void *(hwdthetada_)();
+extern void (hwdthetada_)();
 static R_NativePrimitiveArgType hwdthetada_type[] = {
 	INTSXP, REALSXP, REALSXP};
-extern void *(dphida_)();
+extern void (dphida_)();
 static R_NativePrimitiveArgType dphida_type[] = {
 	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP};
-extern void *(hwha_)();
+extern void (hwha_)();
 static R_NativePrimitiveArgType hwha_type[] = {INTSXP,REALSXP,REALSXP,REALSXP};
 static R_NativePrimitiveArgType glinvtestfloatIEEE01_type[] = {REALSXP,REALSXP};
 static R_NativePrimitiveArgType glinvtestfloatIEEE03_type[] = {REALSXP,REALSXP};
 static const R_CMethodDef cMethods[] = {
-	{"d0geouvwphi_",          &d0geouvwphi_,          17, d0geouvwphi_type           },
-	{"ougejac_",              &ougejac_,              13, ougejac_type               },
-	{"lnunchol_",             (DL_FUNC)&lnunchol_,     6, lnunchol_type              },
-	{"hphiha_",               &hphiha_,                9, hphiha_type                },
-	{"hvha_",                 &hvha_,                 14, hvha_type                  },
-	{"hvdadl_",               &hvdadl_,               13, hvdadl_type                },
-	{"hvhl_",                 &hvhl_,                 11, hvhl_type                  },
-	{"hwdthetada_",           &hwdthetada_,            3, hwdthetada_type            },
-	{"dphida_",               &dphida_,                8, dphida_type                },
-	{"hwha_",                 &hwha_,                  4, hwha_type                  },
-	{"glinvtestfloatIEEE01_", &glinvtestfloatIEEE01_,  2, glinvtestfloatIEEE01_type  },
-	{"glinvtestfloatIEEE03",  &glinvtestfloatIEEE03,   2, glinvtestfloatIEEE03_type  },
+	{"d0geouvwphi_",          (DL_FUNC) &d0geouvwphi_,          17, d0geouvwphi_type           },
+	{"ougejac_",              (DL_FUNC) &ougejac_,              13, ougejac_type               },
+	{"lnunchol_",             (DL_FUNC) &lnunchol_,              6, lnunchol_type              },
+	{"hphiha_",               (DL_FUNC) &hphiha_,                9, hphiha_type                },
+	{"hvha_",                 (DL_FUNC) &hvha_,                 14, hvha_type                  },
+	{"hvdadl_",               (DL_FUNC) &hvdadl_,               13, hvdadl_type                },
+	{"hvhl_",                 (DL_FUNC) &hvhl_,                 11, hvhl_type                  },
+	{"hwdthetada_",           (DL_FUNC) &hwdthetada_,            3, hwdthetada_type            },
+	{"dphida_",               (DL_FUNC) &dphida_,                8, dphida_type                },
+	{"hwha_",                 (DL_FUNC) &hwha_,                  4, hwha_type                  },
+	{"glinvtestfloatIEEE01_", (DL_FUNC) &glinvtestfloatIEEE01_,  2, glinvtestfloatIEEE01_type  },
+	{"glinvtestfloatIEEE03",  (DL_FUNC) &glinvtestfloatIEEE03,   2, glinvtestfloatIEEE03_type  },
 	{NULL, NULL, 0, NULL}
 };
 
