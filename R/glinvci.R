@@ -38,30 +38,42 @@ has_tipvals = function (mod) UseMethod('has_tipvals')
 #' @rdname has_tipvals
 #' @method has_tipvals glinv_gauss
 #' @export
-has_tipvals.glinv_gauss = function (mod) .Call(Rxavail, mod$ctree)
-
+has_tipvals.glinv_gauss = function (mod) {
+  ensure_reinit(mod)
+  .Call(Rxavail, mod$ctree)
+}
+#' @rdname has_tipvals
+#' @method has_tipvals glinv
+#' @export
+has_tipvals.glinv = function (mod) {
+  ensure_reinit(mod)
+  .Call(Rxavail, mod$rawmod$ctree)
+}
 
 #' Set trait values at the tip for a \code{glinv_gauss} model.
 #'
 #' If a \code{glinv_gauss} or \code{glinv} object were initalised with \code{X=NULL}, methods like
 #' \code{lik} will not work because it lacks actual data. In this case, the user
-#' should set the trait values using this method. Any existing trait values
-#' were replaced after calling this.
+#' should set the trait values using this method. If trait values were already set before,
+#' they will be replaced with the new trait values.
+#'
+#' \code{X} can contain any \code{NA} nor \code{NaN} if \code{set_tips} is called on a
+#' \code{glinv} model but this is will result in error if the method were called on a
+#' \code{glinv_gauss} model.
 #'
 #' This method alters an underlying C structure, therefore has a mutable-object
-#' semantic (See example).
+#' semantic. (See example).
 #'
 #' @param mod A \code{glinv_gauss} or \code{glinv} object.
 #' @param X   A matrix of trait values, in which \code{X[p,n]} stores the p-th dimension
-#'            of the multivariate trait of the n-th tip of the phylogeny. 
-#' @return    No return value, called for side effects.
+#'            of the multivariate trait of the n-th tip of the phylogeny.
+#' @return    A model whose tip trait values are set.
 #' @examples
 #' tr = ape::rtree(10)
-#' model = glinv_gauss(tr, x0=c(0,0))  # The `X` argument is implicitly NULL
+#' model  = glinv_gauss(tr, x0=c(0,0))  # The `X` argument is implicitly NULL
+#' model2 = model                       # This is not copied!
 #' traits = matrix(rnorm(20), 2, 10)
 #' set_tips(model, traits)
-#' # Now lik(model, ...) should work
-#' 
 #' @export
 set_tips = function (mod, X) UseMethod('set_tips')
 
@@ -69,19 +81,74 @@ set_tips = function (mod, X) UseMethod('set_tips')
 #' @method set_tips glinv_gauss
 #' @export
 set_tips.glinv_gauss = function (mod, X)  {
-  .Call(Rsettip, mod$ctree, clean_x(X, mod$dimtab, mod$apetree))
-  invisible()
+  ## Extra checks because clean_X accepts more types for internal use
+  ensure_reinit(mod)
+  if (! is.numeric(X) || ! is.matrix(X)) stop('X must be a numerical matrix.')
+  set_tips_glinv_gauss_(mod, X)
 }
 
 #' @rdname set_tips
 #' @method set_tips glinv
 #' @export
-set_tips.glinv       = function (mod, X)    set_tips(mod$rawmod, tip_purge(X))
+set_tips.glinv       = function (mod, X) {
+  ensure_reinit(mod)
+  tree = mod$rawmod$apetree
+  misschanged = FALSE
+  if (is.list(X)) {
+    X = unlist(X)
+    dim(X) = c(length(X)/length(tree$tip.label),length(tree$tip.label))
+    traitnames = names(mod$rawmod$x0)
+  } else if (is.double(X)) {
+    if (ncol(X) != length(tree$tip.label))
+      stop('If `X` is a matrix, it must have the same number of *columns* as the number of tips.')
+    traitnames = if      (!is.null(rownames(X)))            rownames(X)
+                 else if (!is.null(names(mod$rawmod$x0)))   names(mod$rawmod$x0)
+                 else                                       NULL
+  }
+  mtags = tag_missing(mod$rawmod, X)
+  dtab = if (any(mtags != mod$misstags)) {
+             misschanged = T
+             OKlvl = which(levels(mtags)=='OK')
+             apply(mtags,2,function(y) sum(y == OKlvl))
+           } else {
+             misschanged = F
+             mod$dimtab
+           }
+  xlist = tip_purge(X)
+  if (misschanged) {
+    if (any(dtab == 0))
+      stop(sprintf("All dimensions at Node #%d are either lost or missing",
+                   which(dtab == 0)[1]))
+    mod$rawmod$dimtab   = dtab
+    #mod$rawmod$gaussdim = as.integer(sum(dtab[1:(tree$edge[1,1]-1)]))
+    mod$rawmod$gaussdim = as.integer(sum(dtab[1:(.Call(Rgetroot,t(tree$edge))-1)]))
+    mod$rawmod$ctree    = renew_node(mod$rawmod, dtab, xlist) ## Ensure the underlying C tree has the correct dims.
+    mod$rawmod$X        = xlist
+    mod$rawmod$nparams  = nparams(mod$rawmod)
+    rownames(mtags) = traitnames
+    gaussseg = .Call(Rvwphi_paradr, mod$rawmod$ctree)
+    colnames(gaussseg) = c('start','end')
+    mod$dimtab         = dtab
+    mod$misstags       = mtags
+    mod$gausssegments  = gaussseg
+    mod$X              = X
+    mod$gaussparams_fn = gaussparams(mod)
+    if (!is.null(mod$gaussparams_jac))
+      mod$gaussparams_jac = gaussparams_grad(mod)
+  } else
+    mod$rawmod = set_tips_glinv_gauss_(mod$rawmod, xlist)
+  return(mod)
+}
 
+set_tips_glinv_gauss_ = function (mod, X) {
+  mod$ctree = .Call(Rsettip, mod$ctree, clean_x(X, mod$dimtab, mod$apetree), mod)
+  mod$X     = X
+  return(mod)
+}
 
 #' Simulate random trait values from models.
 #'
-#' Simulate random trait values from the Gaussian branching process specified by \code{mod}. 
+#' Simulate random trait values from the Gaussian branching process specified by \code{mod}.
 #' 
 #'
 #' @param mod      Either a \code{glinv_gauss} or \code{glinv} object.
@@ -99,15 +166,40 @@ rglinv = function (mod, par, Nsamp, simplify) UseMethod('rglinv')
 #' @rdname rglinv
 #' @export
 rglinv.glinv         = function (mod, par, Nsamp=1, simplify=TRUE) {
-  ## TODO: either warn the user when they have missing values, or recover the original shape.
-  rglinv.glinv_gauss(mod$rawmod, mod$gaussparams_fn(par), Nsamp, simplify=simplify)
+  ensure_reinit(mod)
+  if (length(par) != mod$nparams)
+    stop(sprintf('The model has %d parameters but I have got %d', mod$nparams, length(par)))
+  listdat = rglinv.glinv_gauss(mod$rawmod, mod$gaussparams_fn(par), Nsamp, simplify=F)
+  if (!simplify)
+    return(listdat)
+  else {
+    ntip = length(mod$rawmod$apetree$tip.label)
+    k = length(mod_tworeg$rawmod$x0)
+    okmask      = which(c(as.character(mod_tworeg$misstags[,1L:ntip])) == 'OK')
+    lostmask    = which(c(as.character(mod_tworeg$misstags[,1L:ntip])) == 'LOST')
+    missingmask = which(c(as.character(mod_tworeg$misstags[,1L:ntip])) == 'MISSING')
+    ans = replicate(Nsamp, {
+      M = double(k*ntip)
+      M[lostmask] = NaN
+      M[missingmask] = NA
+      M
+    }, simplify=F)
+    for (i in 1:Nsamp) {
+      ans[[i]][okmask] = unlist(listdat[[i]])
+      dim(ans[[i]]) = c(k,ntip)
+    }
+    return(ans)
+  }
 }
 
 #' @rdname rglinv
 #' @export
 rglinv.glinv_gauss = function (mod, par, Nsamp=1, simplify=TRUE) {
+  ensure_reinit(mod)
   if (Nsamp < 1L)
     stop('Nsamp must be at least 1L')
+  if (length(par) != mod$nparams)
+    stop(sprintf('The model has %d parameters but I have got %d', mod$nparams, length(par)))
   dat = .Call(Rvwphi_simul,
               mod$ctree,
               as.integer(length(mod$apetree$tip.label)),
@@ -115,12 +207,14 @@ rglinv.glinv_gauss = function (mod, par, Nsamp=1, simplify=TRUE) {
               as.double(par),
               as.integer(Nsamp),
               as.double(mod$x0))
-  if (simplify) Map( function (y) Reduce(cbind, y), dat)
-  else          dat
+  return(if (simplify) {
+           ## Check if the length of tips are the same. If not then don't cbind().
+           if (length(unique(dat[[1]])) > 1L) {
+             warning('simplify=TRUE is specified but not all tips in the simulated data has the same number of dimensions. Ignoring the "simplify" argument.')
+             dat
+           } else Map( function (y) Reduce(cbind, y), dat)
+         } else dat)
 }
-
-clone_topology = function (ctree) .Call(R_clone_tree, ctree)
-
 
 #' Construct an object representing a GLInv model with respect to the underlying Gaussian process parameters.
 #'
@@ -153,7 +247,8 @@ clone_topology = function (ctree) .Call(R_clone_tree, ctree)
 #' @return       An object of S3 class \code{glinv_gauss} with the following components
 #'               \describe{
 #'                 \item{ctree}{A pointer to an internal C structure.}
-#'                 \item{apetree}{Identical to the \code{tree} argument.}
+#'                 \item{apetree}{Same as the \code{tree} argument but with some pre-processing in its edge table}
+#'                 \item{origtree}{The \code{tree} argument.}
 #'                 \item{x0}{The trait vector at the root of the tree.}
 #'                 \item{dimtab}{Identical to the \code{dimtab} argument.}
 #'                 \item{gaussdim}{The number of dimension of the parameter space of this model.}
@@ -169,23 +264,71 @@ glinv_gauss = function (tree, x0, dimtab=NULL, X=NULL) {
     dimtab = as.integer(rep(length(x0), length(tree$edge)/2+1))
   } else {
     if (!(length(dimtab) == length(tree$edge)/2+1 ||
-          length(dimtab) == 1))                 stop("dimtab must be an integer vector of length N_NODES or 1")
+          length(dimtab) == 1))                 stop("dimtab must be an integer vector of length 1 or N_NODES")
     if (length(dimtab) == 1)                    dimtab = as.integer(rep(dimtab, length(tree$edge)/2+1))
   }
-  if (length(x0) != dimtab[tree$edge[1,1]])     stop("x0's dimension doesn't match dimtab's")
+  if (!is.null(attr(tree,'glinvci_fixed')))
+    tree   = attr(tree->origtr,'glinvci_fixed')
+  else {
+    origtr = tree
+    tree   = fix_tree(origtr)
+    attr(origtr,'glinvci_fixed') = tree
+  }
+  if (length(x0) != dimtab[.Call(Rgetroot,t(tree$edge))])     stop("x0's dimension doesn't match dimtab's")
   mode(x0)     = 'double'
   mode(dimtab) = 'integer'
   ctree = .Call(Rnewnode,
                 { ed = t(tree$edge); mode(ed) = 'integer'; ed },
                 clean_x(X, dimtab, tree),
                 dimtab)
-  o = list(ctree = ctree, apetree = tree, x0 = x0, dimtab = dimtab,
-           gaussdim = as.integer(sum(dimtab[1:(tree$edge[1,1]-1)])))
+  o = as.environment(list(ctree = ctree, apetree = tree, origtree=origtr,
+                          x0 = x0, dimtab = dimtab,
+                          gaussdim = as.integer(sum(dimtab[1:(.Call(Rgetroot,t(tree$edge))-1)])),
+                          X = X))
   class(o) = 'glinv_gauss'
   o$nparams = nparams(o)
   o
 }
 
+renew_node = function (rawmod, dimtab=NULL, X=NULL) {
+  ## Make a new C tree. Can be called when the tree is a NULL pointer.
+  ## Both X and dimtab is copied from rawmod if not provided. If only dimtab
+  ## is provided it is set into the C tree leaving X NULL, but if only X
+  ## is provided then error will be thrown; in this case X of the new tree
+  ## won't be set. If both are provided then both will be set into the tree.
+  if (is.null(dimtab)) {
+    if (is.null(X)) dimtab = rawmod$dimtab
+    else            stop('Internal error in renew_node()! Please report this to the maintainer.')
+  } else {
+    if (!(length(dimtab) == length(rawmod$apetree$edge)/2+1 ||
+          length(dimtab) == 1))                 stop("dimtab must be an integer vector of length 1 or N_NODES")
+    if (length(dimtab) == 1)                    dimtab = rep(dimtab, length(rawmod$apetree$edge)/2+1)
+  }
+  if (length(rawmod$x0) != dimtab[.Call(Rgetroot,t(rawmod$apetree$edge))])     stop("x0's dimension doesn't match dimtab's")
+  mode(rawmod$x0) = 'double'
+  mode(dimtab)    = 'integer'
+  ctree = .Call(Rnewnode,
+                { ed = t(rawmod$apetree$edge); mode(ed) = 'integer'; ed },
+                clean_x(X, dimtab, rawmod$apetree),
+                dimtab)
+  return(ctree)
+}
+
+ensure_reinit = function (mod, ...) UseMethod('ensure_reinit')
+ensure_reinit.glinv = function (mod, ...) {
+  ensure_reinit(mod$rawmod)
+  return(mod)
+}
+ensure_reinit.glinv_gauss = function (mod, ...) {
+  stopifnot(identical(class(mod$ctree), "externalptr"))
+  if (.Call(Risnullptr, mod$ctree))
+    mod$ctree = clone_model(mod)$ctree
+  return(mod)
+}
+
+## Used before calling the C tree-constructing function. Throws error when X contains NA or NaN so
+## glinv class must purge the tips of NA and NaN itself before feeding X to any glinv_gauss class'
+## functions.
 clean_x = function (X, dimtab, tree) {
   X_clean = if      (is.list(X))      lapply(X, function (x) {mode(x)='double'; x})
             else if (is.numeric(X))   plyr::alply(matrix(data=X, ncol=length(tree$tip.label)),
@@ -194,14 +337,16 @@ clean_x = function (X, dimtab, tree) {
             else if (is.null(X))      return(NULL)
   if (length(X_clean) != length(tree$tip.label))
     stop(sprintf("X contains %d tips but the tree has %d", length(X_clean), length(tree$tip.label)))
-  for (i in seq_along(X_clean))
+  for (i in seq_along(X_clean)) {
     if (!is.numeric(X_clean[[i]]))  stop(sprintf("The %d-th tip (name: %s) isn't numeric", i, tree$tip.label[i]))
     if (!(all(!is.na(X_clean[[i]])) && all(!is.nan(X_clean[[i]]))))
-        stop(sprintf('The %d-th tip (name: %s) contains NA/NaN', i, tree$tip.label[i]))
+        stop(sprintf('In the passed-in trait data, the %d-th tip (name: %s) contains NA/NaN', i, tree$tip.label[i]))
     if (length(X_clean[[i]]) != dimtab[i])
-      stop(sprintf("The %d-th tip (name: %s) is %d-dimensional in `X` but `dimtab` says it's %d-dimensional",
-                   i, tree$tip.label[i], length(X_clean), dimtab[i]))
-  X_clean
+      stop(sprintf("In the passed-in trait data, the %d-th tip (name: %s) is %d-dimensional in `X` but `dimtab` says it's %d-dimensional",
+                   i, tree$tip.label[i], length(X_clean[[i]]), dimtab[i]))
+  }
+  attributes(X_clean) = NULL
+  return(X_clean)
 }
 
 #' Compute the likelihood of a GLInv model
@@ -256,8 +401,8 @@ lik = function (mod, ...) UseMethod('lik')
 #' hess(model, par)
 #' @export
 lik.glinv_gauss = function (mod, par=NULL, ...) {
+  ensure_reinit(mod)
   if (is.null(par)) {
-    mod
     function (par)  .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
   } else            .Call(Rndphylik, mod$ctree, par, mod$x0, mod$gaussdim)
 }
@@ -269,7 +414,7 @@ lik.glinv_gauss = function (mod, par=NULL, ...) {
 #'
 #' @param    mod    An object of either \code{\link{glinv}} or \code{\link{glinv_gauss}} class.
 #' @param    ...    Further arguments to be passed to the S3 methods.
-#' @return    A numerical vector containing the gradient of \code{mod}.
+#' @return   A numerical vector containing the gradient of \code{mod}.
 #' @export
 grad = function (mod, ...) UseMethod('grad')
 
@@ -284,6 +429,7 @@ grad = function (mod, ...) UseMethod('grad')
 #' @param ...    Not used.
 #' @export
 grad.glinv_gauss = function (mod, par=NULL, lik=FALSE, ...) {
+  ensure_reinit(mod)
   if (is.null(par))
     function (par) grad_glinv_gauss_(mod=mod, par=par, lik=lik)
   else
@@ -322,7 +468,7 @@ hess = function (mod, ...) UseMethod('hess')
 #' @param ...         Not used.
 #' @export
 hess.glinv_gauss = function (mod, par=NULL, lik=FALSE, grad=FALSE, directions=NULL, ...) {
-  mod
+  ensure_reinit(mod)
   if (is.null(par)) {
     function (par) hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
   } else           hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
@@ -352,6 +498,7 @@ hess_glinv_gauss_ = function (mod, par, lik=FALSE, grad=FALSE, directions=NULL, 
 #' @param  ...  Not used.
 #' @export
 print.glinv_gauss = function (x, ...) {
+  ensure_reinit(x)
   y = x$apetree
   cat(paste("A `raw' GLInv model, with respect to the underlying Gaussian parameters. It has", length(y$tip.label), "tips,",
             y$Nnode, "internal nodes, and", nparams(x), "parameters. Tip values are",
@@ -360,16 +507,16 @@ print.glinv_gauss = function (x, ...) {
 
 
 tip_purge = function (x, ...) UseMethod('tip_purge')
-tip_purge.list = function (X) {
+tip_purge.list = function (X)
   lapply(seq_len(length(X)), function(i) {
     y = X[[i]]
     y[(!is.na(y))&(!is.nan(y))]})
-}
+
 tip_purge.matrix = function (X)
   lapply(seq_len(ncol(X)), function(i) {
     y = X[,i]
     y[(!is.na(y))&(!is.nan(y))]})
-
+tip_purge.NULL = function (X) NULL
 
 #' Construct an GLInv model with respect to user-specified parametrisation
 #'
@@ -398,7 +545,7 @@ tip_purge.matrix = function (X)
 #'
 #' @param tree    A tree of class \code{\link[ape]{phylo}}.
 #' @param x0      A vector representing the root's trait vector. Must not contain \code{NA} and \code{NaN}.
-#' @param X       A matrix of trait values, in which \code{X[p,n]} stores the p-th dimension
+#' @param X       Optional. A matrix of trait values, in which \code{X[p,n]} stores the p-th dimension
 #'                of the multivariate trait of the n-th tip of the phylogeny. \code{NA} and \code{NaN}
 #'                has special meanings (See Details).
 #' @param parfns  A list of functions that maps from the user-parametrisation to the underlying Gaussian parameters.
@@ -423,6 +570,9 @@ tip_purge.matrix = function (X)
 #'                column-major-flattened vector) with respect to the \eqn{i}-th and\eqn{j}-th user parameters;
 #'                while \code{((parhess[[i]])(...))$w[m,i,j]} and \code{((parhess[[i]])(...))$V[m,i,j]}
 #'                analogously contains second-order derivative of \eqn{w_m} and \eqn{V'_m}.
+#' @param repar   Optional. One or a list of object returned by \code{get_restricted_ou}. This is a convenient
+#'                short-cut alternative to supplying \code{pardims}, \code{parfns}, \code{parjacs}, and
+#'                \code{parhess} one-by-one.
 #' @param x       A \code{glinv} object, for the \code{print.glinv} S3 method. 
 #' @return        The \code{glinv} function returns a model object of S3 class \code{glinv}. Elements are:
 #'                
@@ -457,6 +607,7 @@ tip_purge.matrix = function (X)
 #'                                        is \code{nparams} in this object. When called, this function traverses
 #'                                        the tree, calls the functions in \code{parjacs} on each node, and row-concatenates the
 #'                                        result in an order consistent with what \code{\link{lik.glinv_gauss}} accepts.}
+#'                  \item{X}{The original data (trait) matrix in a "normalized" format.}
 #' @references      Mitov V, Bartoszek K, Asimomitis G, Stadler T (2019). “Fast likelihood calculation for multivariate Gaussian phylogenetic models with shifts.” Theor. Popul. Biol.. https://doi.org/10.1016/j.tpb.2019.11.005.
 #' @examples
 #' \donttest{
@@ -497,19 +648,40 @@ tip_purge.matrix = function (X)
 #' print(marginal_ci(v_estimate, lvl=0.95)) 
 #' }
 #' @export
-glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parhess=NULL) {
+glinv = function (tree, x0, X, parfns=NULL, pardims=NULL, regimes=NULL, parjacs=NULL, parhess=NULL, repar=NULL) {
   if (!'phylo' %in% class(tree)) stop("`tree` must be of class ape::phylo")
   if (!ape::is.rooted(tree))     stop("Only rooted trees are supported.")
+  origtr = tree
+  tree = fix_tree(tree)
+  attr(origtr,'glinvci_fixed') = tree
+  theroot = tree$edge[1,1]
+  if (! is.null(repar)) {
+    if (!(is.null(parfns) && is.null(parjacs) && is.null(parhess)))
+      stop('When repar is supplied, parfns, parjacs, parhess must all be NULL')
+    else {
+      if (is.function(repar$par)) repar = list(repar)
+      pardims = lapply(repar,  function (r) r$nparams(length(x0)))
+      parfns = lapply(repar,  function (r) r$par)
+      parjacs = lapply(repar, function (r) r$jac)
+      parhess = lapply(repar, function (r) r$hess)
+    }
+  } else {
+    if (! (is.function(parfns) || (is.list(parfns) && length(parfns) >= 1L)))
+      stop('No repar nor parfns are supplied.')
+  }
   ## In case there is only a single regime fns, jacs and hess is allowed to be a single function instead
   ## of a list of functions. In this case the only evolutionary regime is set to start at root automatically.
-  if (is.function(parfns) || (is.list(parfns) && length(parfns) == 1 && is.function(parfns[[1]]))) {
+  if (is.function(parfns) || (is.list(parfns) && length(parfns) == 1L && is.function(parfns[[1]]))) {
     parfns   = c(parfns)
     parjacs  = c(parjacs)
     parhess  = c(parhess)
     if (!is.null(regimes))
       stop("`regimes` cannot and need not be specified when `parfns` contains only one function")
-    regimes = list(c(start=tree$edge[1,1], fn=1))
+    regimes = list(c(start=theroot, fn=1))
   }
+  if (length(parfns) >= 2L || length(parjacs) >= 2L || length(parhess) >= 2L)
+    if (is.null(regimes))
+      stop('Multiple parameter functions/gradients/hessian are supplied but regime is NULL.')
   ## Duplicate parfns, parjacs and parhess so it doesn't alter the user's own function when
   ## we mess with their environment. Then attach a child environment.
   for (L in c('parfns','parjacs','parhess')) {
@@ -520,7 +692,7 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
     }))
   }
   pardims  = as.integer(unlist(pardims))
-  modtpl   = glinv_gauss(tree, 0, 1, X=NULL)
+  modtpl   = glinv_gauss(origtr, 0, 1, X=NULL)
   if (! is.null(X)) {
     if (is.list(X)) {
       X = unlist(X)
@@ -550,14 +722,14 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
   }
   if (! is.null(X))
     rownames(misstags) = traitnames
-  
-  if (!length(x0) == dimtab[tree$edge[1,1]]) 
+
+  if (!length(x0) == dimtab[theroot])
     stop(sprintf("The dimension of `x0` must be %d but I got %d",
-                 dimtab[tree$edge[1,1]], length(x0)))
+                 dimtab[theroot], length(x0)))
   if (length(pardims) != length(parfns) || length(pardims) != length(parjacs) || length(pardims) != length(parhess))
     stop("pardims, parfns, parjacs, parhess must have the same length.")
-  rawmod     = glinv_gauss(tree, x0, dimtab, X = if (is.null(X)) NULL else tip_purge(X))
-  regtags    = tag_regimes(modtpl, unlist(Map(function(x) x['start'], regimes)))
+  rawmod     = glinv_gauss(attr(origtr,'glinvci_fixed'), x0, dimtab, X = if (is.null(X)) NULL else tip_purge(X))
+  regtags    = tag_regimes(modtpl, unlist(Map(function(x) x['start'], regimes)), theroot)
   parfntags  = tag_parfns(regtags, regimes)
   parsegments= matrix(c(1L,1L+cumsum(pardims[-length(pardims)]),cumsum(pardims)),ncol=2)
   colnames(parsegments) = c('start','end')
@@ -575,24 +747,84 @@ glinv = function (tree, x0, X, parfns, pardims, regimes=NULL, parjacs=NULL, parh
                 parjacs       =parjacs,
                 parhess       =parhess,
                 parsegments   =parsegments,
-                gausssegments =gausssegments)
+                gausssegments =gausssegments,
+                X             =X) # X is stored here once again because the raw model uses the tip-purged X.
   obj[['gaussparams_fn']]     =gaussparams(obj)
   obj[['gaussparams_jac']]    =if (is.null(parjacs)) NULL
                                else                  gaussparams_grad(obj)
+  obj = as.environment(obj)
   ## We don't need gaussparams_hess but perhaps add it for consistency...?
   class(obj) = 'glinv'
   obj
 }
+
+
+#' Clone a GLInv model
+#'
+#' The \code{clone_model} function is a S3 generic method for either the \code{\link{glinv}}
+#' or \code{\link{glinv_gauss}} class.
+#'
+#' Because \code{glinv} or \code{glinv_gauss} object is mutable, the assignment \code{model2 = model1}
+#' will not make a copy your model. The correct way to copy a model is to use the \code{clone_model}
+#' function.
+#'
+#' @param    mod    An object of either \code{\link{glinv}} or \code{\link{glinv_gauss}} class.
+#' @param    ...    Further arguments to be passed to the S3 methods. Not used currently.
+#' @return          A new model that is a clone of \code{mod}.
+#' @examples
+#' repar = get_restricted_ou(H=NULL, theta=c(0,0), Sig='diag', lossmiss=NULL)
+#' mod1 = glinv(tree    = ape::rtree(10),
+#'              x0      = c(0,0),
+#'              X       = NULL,
+#'              repar   = repar)
+#' mod2 = mod1
+#' mod3 = clone_model(mod1)
+#' traits = matrix(rnorm(20), 2, 10)
+#' set_tips(mod1, traits)
+#' print(has_tipvals(mod1))  # TRUE
+#' print(has_tipvals(mod2))  # TRUE
+#' print(has_tipvals(mod3))  # FALSE
+#' @export
+clone_model = function (mod, ...) UseMethod('clone_model')
+
+#' @rdname clone_model
+#' @method clone_model glinv_gauss
+#' @export
+clone_model.glinv_gauss = function (mod, ...) {
+  glinv_gauss(mod$origtree, mod$x0, mod$dimtab, clone_X(mod$X))
+}
+
+#' @rdname clone_model
+#' @method clone_model glinv
+#' @export
+clone_model.glinv = function (mod, ...) {
+  glinv(mod$rawmod$origtree, mod$rawmod$x0, tip_purge(clone_X(mod$X)), mod$parfns, mod$pardims,
+        if (length(mod$parjacs) > 1L) mod$regimes else NULL, mod$parjacs, mod$parhess)
+}
+
+clone_X = function (X) {
+  if (is.null(X)) return(NULL)
+  Xnew = vector('list', length(X))
+  for (i in seq_along(Xnew)) {
+    Xnew[[i]]   = double(length(X[[i]]))
+    Xnew[[i]][] = X[[i]][]
+    dim(Xnew[[i]]) = dim(X[[i]])
+    rownames(Xnew[[i]]) = rownames(X)
+    colnames(Xnew[[i]]) = colnames(X)
+  }
+  Xnew
+}
+
 
 #' @rdname glinv
 #' @param ...  Not used.
 #' @export
 print.glinv = function (x, ...) {
   mod = x
-  x = mod$apetree
+  ensure_reinit(mod)
   cat(sprintf(paste0(
     'A GLInv model with %d regimes and %d parameters in total, %s.\n',
-    'The phylogeny has %d tips and %d internal nodes.\n'),
+    'The phylogeny has %d tips and %d internal nodes. Tip values are %s.\n'),
     length(unique(stats::na.exclude(mod$regtags))), mod$nparams,
     {
       if (length(mod$parsegments) > 2) {
@@ -621,17 +853,18 @@ print.glinv = function (x, ...) {
                 s=sprintf('    regime #%d starts from node #%d%s',
                         j,
                         r['start'],
-                        if (r['start'] == mod$rawmod$apetree$edge[1,1]) ', which is the root' else '')
+                        if (r['start'] == .Call(Rgetroot,t(mod$rawmod$apetree$edge))) ', which is the root' else '')
                 j <<- j+1
                 s
               })},
               collapse=';\n')
             ), collapse='')
       } else {
-        "all of which are associated to the only one existing regime, which starts from the root"
+        'all of which are associated to the only one existing regime, which starts from the root'
       }
     },
-    length(mod$rawmod$apetree$tip.label), mod$rawmod$apetree$Nnode))
+    length(mod$rawmod$apetree$tip.label), mod$rawmod$apetree$Nnode,
+    if (has_tipvals(mod$rawmod)) 'already set' else 'empty (meaning `lik()` etc. won\'t work)'))
 }
 
 
@@ -647,6 +880,7 @@ print.glinv = function (x, ...) {
 #' @export
 lik.glinv = function (mod, ...) {
   function (x) {
+    ensure_reinit(mod)
     if (length(x) != mod$nparams)
       stop(sprintf("lik.glinv: your model should have %d parameters but I got %d",
                    mod$nparams, length(x)))
@@ -666,14 +900,19 @@ lik.glinv = function (mod, ...) {
 #' @export
 grad.glinv = function (mod, numDerivArgs = list(method='Richardson', method.args=list(d=.5,r=3)), ...) {
   if (is.null(mod$gaussparams_jac))
-    function(x) c(do.call(numDeriv::jacobian, c(list(lik(mod), x), numDerivArgs)))
-  else function (x)
+    function(x) {
+      ensure_reinit(mod)
+      c(do.call(numDeriv::jacobian, c(list(lik(mod), x), numDerivArgs)))
+    }
+  else function (x) {
+    ensure_reinit(mod)
     if (length(x) != mod$nparams)
       stop(sprintf("lik.glinv: your model should have %d parameters but I got %d",
                    mod$nparams, length(x)))
     else {
       c(grad(mod$rawmod, mod$gaussparams_fn(x)) %*% mod$gaussparams_jac(x))
     }
+  }
 }
 
 #' Compute the Hessian of log-likelihood of a GLInv model
@@ -695,6 +934,7 @@ hess.glinv = function (mod,
                        store_gaussian_hessian = FALSE, ...) {
   mod
   function (par) {
+    ensure_reinit(mod)
     if (length(par) != mod$nparams)
       stop(sprintf("lik.glinv: your model should have %d parameters but I got %d",
                    mod$nparams, length(par)))
@@ -875,6 +1115,7 @@ fit = function (mod, ...) UseMethod('fit')
 #'                     \item{message}{A message from the optimisation routine.}
 #' @export
 fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, project=NULL, projectArgs=NULL, control=list(), ...) {
+  ensure_reinit(mod)
   if (is.null(parinit))
     parinit = if (is.finite(lower) && is.finite(upper))
                 stats::runif(mod$nparams, lower, upper)
@@ -999,6 +1240,7 @@ varest.glinv = function (mod,
                          store_gaussian_hessian = FALSE,
                          control.mc             = list(),
                          ...) {
+  ensure_reinit(mod)
   if (is.list(fitted)) {
     if (is.double(fitted$mlepar))
       mlepar = fitted$mlepar

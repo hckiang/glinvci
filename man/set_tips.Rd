@@ -19,23 +19,26 @@ set_tips(mod, X)
 of the multivariate trait of the n-th tip of the phylogeny.}
 }
 \value{
-No return value, called for side effects.
+A model whose tip trait values are set.
 }
 \description{
 If a \code{glinv_gauss} or \code{glinv} object were initalised with \code{X=NULL}, methods like
 \code{lik} will not work because it lacks actual data. In this case, the user
-should set the trait values using this method. Any existing trait values
-were replaced after calling this.
+should set the trait values using this method. If trait values were already set before,
+they will be replaced with the new trait values.
 }
 \details{
-This method alters an underlying C structure, therefore has a mutable-object
-semantic (See example).
+\code{X} can contain any \code{NA} nor \code{NaN} if \code{set_tips} is called on a
+\code{glinv} model but this is will result in error if the method were called on a
+\code{glinv_gauss} model.
+
+This method alters an underlying C structure. See the example for the correct way
+to call it.
 }
 \examples{
 tr = ape::rtree(10)
-model = glinv_gauss(tr, x0=c(0,0))  # The `X` argument is implicitly NULL
+model  = glinv_gauss(tr, x0=c(0,0))  # The `X` argument is implicitly NULL
+model2 = model                       # This is not copied!
 traits = matrix(rnorm(20), 2, 10)
 set_tips(model, traits)
-# Now lik(model, ...) should work
-
 }

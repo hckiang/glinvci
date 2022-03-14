@@ -3,11 +3,14 @@
 \name{has_tipvals}
 \alias{has_tipvals}
 \alias{has_tipvals.glinv_gauss}
+\alias{has_tipvals.glinv}
 \title{Check if a \code{glinv_gauss} model contains trait values at their tips.}
 \usage{
 has_tipvals(mod)
 
 \method{has_tipvals}{glinv_gauss}(mod)
+
+\method{has_tipvals}{glinv}(mod)
 }
 \arguments{
 \item{mod}{A \code{glinv_gauss} object.}

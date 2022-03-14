@@ -23,3 +23,23 @@ list_set_default = function (L, defaults) {
       L[[default_names[[i]]]] = defaults[[i]]
   L
 }
+
+## Returns: a tree in which edge table ordered depth-first
+## Throws error if: root is not numbered n+1
+fix_tree = function (tr)
+  replace(tr, 'edge', list({
+    if (! ape::is.rooted(tr)) stop('Non-rooted trees are not supported')
+    ord = integer(nrow(tr$edge->ecpy)->nr)
+    S   = integer(nr)
+    if (max(tr$edge) != (length(tr$tip.label)->nt)+tr$Nnode || min(tr$edge) != 1L)
+      stop('Trees which has non-consecutive or negative node numbers are not supported.')
+    if ((.Call(Rgetroot, t(tr$edge))->S[1L->p]->rt) != nt+1L)
+      stop('Trees whose root\'s node number isn\'t number of tip plus one is not supported.')
+    i = 0L
+    while (p>=1L) {
+      if(length(which(ecpy[,1L]==S[p])->e)<=0L) {p=p-1L; next}
+      S[(p=p+1L)] = ecpy[e[1L]->ord[(i+1L->i)],2L]
+      ecpy[e[1L],] = NaN
+    }
+    tr$edge[ord,]
+  }))

@@ -296,7 +296,8 @@ int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk, doubl
 void hessselftop(struct node *m, int kv, int ictx, int i, int j, int p, int q, double *x0, struct node *rt, double *hessflat, double *dir, int ndir);
 void initgbk(struct hessglbbk *gbk, struct node *rt, struct node *p, int maxdim);
 void delgbk(struct hessglbbk gbk);
-       
+SEXP Rlistelem(SEXP Rlist, const char *key);
+int Rsetlistelem(SEXP Rlist, const char *key, SEXP Robj);
 
 
 #define dcalloc(LHS, N, ONFAIL) { void* T; if( !(T = malloc((N)*sizeof(double)))) goto ONFAIL; dzero(T,N); LHS=T; }
@@ -375,9 +376,9 @@ void settip(struct node *t, SEXP Rxtab) {
 		settip(p, Rxtab);
 	return;
 MEMFAIL:
-	error("settip2(): Failed to allocate memory");
+	error("settip(): Failed to allocate memory");
 }
-SEXP Rsettip(SEXP Rtr, SEXP Rxtab) {	
+SEXP Rsettip(SEXP Rtr, SEXP Rxtab, SEXP Rrawmodobj) {
 	struct node *t, *p;
 	t = (struct node *)R_ExternalPtrAddr(Rtr);
 	t->u.rbk.xavail = 1;
@@ -417,9 +418,24 @@ SEXP Rvwphi_paradr(SEXP Rt) {
 void my_rchkusr(void *dummy) { (void)dummy; R_CheckUserInterrupt(); }
 int my_rchk() { return !(R_ToplevelExec(my_rchkusr, NULL)); }
 
-/* Construct our linked-list-style tree structure out of ape's tree$edge table,
-   a table of trait values, and a table of trait dimensions.
- */
+/* Get the root ape ID of a tree, that is, the first node that is found to not having a parent. */
+SEXP Rgetroot(SEXP edges) {
+	int *e, n, i,j,tmp;
+	SEXP res;
+	res = PROTECT(allocVector(INTSXP, 1));
+	e = INTEGER(edges);
+	n = length(edges);
+	/* A node does not have a parent if and only if it doesn't appear in the
+           second column of the edge table. So we find the smallest positive integer
+           that is missing in the second column. */
+	for (i=1; i<n; i+=2)              if ((tmp=abs(e[i]))<=n) e[tmp-1]=abs(e[tmp-1])*-1;
+	for (j=0; j<=n/2 && e[j]<=0; ++j) e[j]*=-1;
+	INTEGER(res)[0] = j<=n/2 ? j+1 : -1;
+	for (++j; j<n; ++j)               e[j] = abs(e[j]);
+	UNPROTECT(1);
+	return(res);
+}
+
 SEXP Rnewnode(SEXP edges, SEXP xtab, SEXP dimtab) {
 	int *e, *d=0;	           /* C table for edges, dimtab. */
 	int n;			   /* Number of nodes including root */
@@ -470,7 +486,13 @@ MEMFAIL:
 	error("Rnewnode(): Failed to allocate memory");
 NRAFAIL:  
 	error("Rnewnode(): Failed to allocate memory");
-	return R_NilValue;	/* Stop GCC from bitching. */
+	return R_NilValue;
+}
+
+SEXP Risnullptr(SEXP thing) {
+	if (NULL == R_ExternalPtrAddr(thing))
+		return ScalarLogical(1);
+	else    return ScalarLogical(0);
 }
 
 /* Clone a tree skeleton from an existing tree. The new tree contains nothing
@@ -494,9 +516,10 @@ struct node *sktrcpywk(struct node *t) {
 	tnew->chd = sktrcpywk(t->chd);	tnew->nxtsb = sktrcpywk(t->nxtsb);
 	return tnew;
 }
-SEXP R_clone_tree(SEXP Rctree) {
+/*SEXP R_clone_tree(SEXP Rctree) {
 	return Rwrapnode(sktrcpy((struct node *)R_ExternalPtrAddr(Rctree)));
 }
+*/
 
 size_t difftmp(struct node *t, void *wsp, int kv) {
 	struct node *p;
@@ -590,7 +613,24 @@ FOUND:
 	UNPROTECT(2);
 	return VECTOR_ELT(Rlist, i);
 }
-
+int Rsetlistelem(SEXP Rlist, const char *key, SEXP Robj) {
+	SEXP names;
+	int len, i;
+	names  = PROTECT(getAttrib(Rlist, R_NamesSymbol));
+	len    = length(names);
+	for (i=0;;++i) {
+		if (i >= len)                                          goto NOTFOUND;
+		if (!strcmp(CHAR(PROTECT(STRING_ELT(names, i))), key)) goto FOUND;
+		UNPROTECT(1);
+	}
+NOTFOUND:
+	UNPROTECT(1);
+	return 0;
+FOUND:
+	SET_VECTOR_ELT(Rlist, i, Robj);
+	UNPROTECT(2);
+	return i;
+}
 size_t getvwphi_listnum(SEXP Rlist, struct node *t, int kv, double **V, double **w, double **Phi, void *wsp, size_t lwsp) {
 	SEXP VwPhi;
 	(void)wsp; (void)lwsp;
@@ -1929,6 +1969,8 @@ SEXP Rhphylik_dir(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP dir) {
 	Rndirdim = getAttrib(dir, R_DimSymbol);
 	if (isNull(Rndirdim) || (length(Rndirdim) != 2)) error("Directions must be a matrix");
 	ndirdim  = INTEGER(Rndirdim);
+	if (ndirdim[0] != (int) t->u.rbk.nparam) 
+		error("Directions must have the same amount of columns as the number of underlying Gaussian parameters");
 	ndir     = ndirdim[1];
 	Rres = PROTECT(allocVector(REALSXP, ndir * ndir));
 	dzero(REAL(Rres), ndir*ndir);
@@ -3238,15 +3280,17 @@ static const R_CallMethodDef callMethods[]  = {
 	{"Rndesc",               (DL_FUNC) &Rndesc,               1},
 	{"Rnparams",             (DL_FUNC) &Rnparams,             1},
 	{"Rxavail",              (DL_FUNC) &Rxavail,              1},
-	{"Rsettip",              (DL_FUNC) &Rsettip,              2},
+	{"Rsettip",              (DL_FUNC) &Rsettip,              3},
 	{"Rvwphi_simul",         (DL_FUNC) &Rvwphi_simul,         6},
-	{"R_clone_tree",         (DL_FUNC) &R_clone_tree,         1},
+	/*{"R_clone_tree",         (DL_FUNC) &R_clone_tree,         1},*/
 	{"Rnewnode",             (DL_FUNC) &Rnewnode,             3},
 	{"Rndphylik",            (DL_FUNC) &Rndphylik,            4},
 	{"Rvwphi_paradr",        (DL_FUNC) &Rvwphi_paradr,        1},
 	{"Rtagmiss",             (DL_FUNC) &Rtagmiss,             3},
 	{"Rtagreg",              (DL_FUNC) &Rtagreg,              3},
 	{"Rtested",              (DL_FUNC) &Rtested,              0},
+	{"Risnullptr",           (DL_FUNC) &Risnullptr,           1},
+	{"Rgetroot",             (DL_FUNC) &Rgetroot,             1},
 	{"glinvtestfloatIEEE02", (DL_FUNC) &glinvtestfloatIEEE02, 1},
 	{NULL, NULL, 0}
 };

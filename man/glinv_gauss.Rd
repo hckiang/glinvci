@@ -55,7 +55,8 @@ contains \eqn{d_i^T H d_j}, where \eqn{d_i} is the \eqn{i}-th column of \code{di
 An object of S3 class \code{glinv_gauss} with the following components
               \describe{
                 \item{ctree}{A pointer to an internal C structure.}
-                \item{apetree}{Identical to the \code{tree} argument.}
+                \item{apetree}{Same as the \code{tree} argument but with some pre-processing in its edge table}
+                \item{origtree}{The \code{tree} argument.}
                 \item{x0}{The trait vector at the root of the tree.}
                 \item{dimtab}{Identical to the \code{dimtab} argument.}
                 \item{gaussdim}{The number of dimension of the parameter space of this model.}

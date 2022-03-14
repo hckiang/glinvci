@@ -18,7 +18,7 @@ tag_missing = function (mod, X) {
   N
 }
 
-tag_regimes = function (mod, roots) {
+tag_regimes = function (mod, roots, theroot=.Call(Rgetroot,t(mod$rawmod$apetree$edge))) {
   if (!('glinv_gauss' %in% class(mod))) stop("Invalid argument: mod")
   if (!is.numeric(roots))
     stop(sprintf(
@@ -28,7 +28,7 @@ tag_regimes = function (mod, roots) {
     stop(sprintf("Two regimes cannot be simultaneously started at the same node", class(roots)[1]))
   M = .Call(Rtagreg, mod$ctree, length(unique(c(mod$apetree$edge))),
             as.integer(c(roots,-1)))
-  M[mod$apetree$edge[1,1]] = NA
+  M[theroot] = NA
   M
 }
 

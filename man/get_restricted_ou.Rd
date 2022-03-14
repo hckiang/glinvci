@@ -55,8 +55,12 @@ x0    = rnorm(k)
 ### --- STEP 2: Make a model which has unrestricted H, fixed theta and diagonal Sigma_x'.
 repar = get_restricted_ou(H=NULL, theta=c(3,1), Sig='diag', lossmiss=NULL)
 mod   = glinv(tr, x0, X,
-              pardims=repar$nparams(k),
-              parfns=repar$par, parjacs=repar$jac, parhess=repar$hess)
+              pardims =repar$nparams(k),
+              parfns  =repar$par,
+              parjacs =repar$jac,
+              parhess =repar$hess)
+# The above code is the same as the following short-cut call:
+# mod = glinv(tr, x0, X, repar=repar)
 
 ### --- STEP 3: Use the model as usual, say, we compute the likelihood at a specified parameter.
 H     = matrix(c(1,0,0,-1), k)
