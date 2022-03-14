@@ -137,13 +137,13 @@ set_tips.glinv       = function (mod, X) {
       mod$gaussparams_jac = gaussparams_grad(mod)
   } else
     mod$rawmod = set_tips_glinv_gauss_(mod$rawmod, xlist)
-  return(mod)
+  invisible(mod)
 }
 
 set_tips_glinv_gauss_ = function (mod, X) {
   mod$ctree = .Call(Rsettip, mod$ctree, clean_x(X, mod$dimtab, mod$apetree), mod)
   mod$X     = X
-  return(mod)
+  invisible(mod)
 }
 
 #' Simulate random trait values from models.
@@ -174,10 +174,10 @@ rglinv.glinv         = function (mod, par, Nsamp=1, simplify=TRUE) {
     return(listdat)
   else {
     ntip = length(mod$rawmod$apetree$tip.label)
-    k = length(mod_tworeg$rawmod$x0)
-    okmask      = which(c(as.character(mod_tworeg$misstags[,1L:ntip])) == 'OK')
-    lostmask    = which(c(as.character(mod_tworeg$misstags[,1L:ntip])) == 'LOST')
-    missingmask = which(c(as.character(mod_tworeg$misstags[,1L:ntip])) == 'MISSING')
+    k = length(mod$rawmod$x0)
+    okmask      = which(c(as.character(mod$misstags[,1L:ntip])) == 'OK')
+    lostmask    = which(c(as.character(mod$misstags[,1L:ntip])) == 'LOST')
+    missingmask = which(c(as.character(mod$misstags[,1L:ntip])) == 'MISSING')
     ans = replicate(Nsamp, {
       M = double(k*ntip)
       M[lostmask] = NaN
@@ -823,16 +823,17 @@ print.glinv = function (x, ...) {
   mod = x
   ensure_reinit(mod)
   cat(sprintf(paste0(
-    'A GLInv model with %d regimes and %d parameters in total, %s.\n',
+    'A GLInv model with %d regimes and %d parameters divided into %d blocks, %s.\n',
     'The phylogeny has %d tips and %d internal nodes. Tip values are %s.\n'),
     length(unique(stats::na.exclude(mod$regtags))), mod$nparams,
+    {pt = mod$parfntags; pt[which(is.na(pt))]=1L; length(unique(pt))},
     {
       if (length(mod$parsegments) > 2) {
         i = 1 # currently processing parfn ID.
         paste0(
-          c(paste0(c('among which',
-                     apply(mod$parsegments, 1, function (x) {
-                       s = sprintf('    the %d~%d-th parameters are asociated with regime no. {%s}',
+          c(paste0(c('whose',
+                     paste0(apply(mod$parsegments, 1, function (x) {
+                       s = sprintf('    %d-%dth parameters are asociated with regime no. {%s}',
                                    x['start'], x['end'],
                                    paste0(
                                    {
@@ -845,12 +846,12 @@ print.glinv = function (x, ...) {
                                    }, collapse=','))
                        i <<- i+1
                        s
-                     })), collapse=';\n'),
+                     }), collapse=';\n')), collapse='\n'),
             ',\nwhere \n',
             paste0({
               j = 1
               lapply(mod$regimes, function (r) {
-                s=sprintf('    regime #%d starts from node #%d%s',
+                s=sprintf('    regime #%d starts from the branch that leads to node #%d%s',
                         j,
                         r['start'],
                         if (r['start'] == .Call(Rgetroot,t(mod$rawmod$apetree$edge))) ', which is the root' else '')
@@ -860,11 +861,11 @@ print.glinv = function (x, ...) {
               collapse=';\n')
             ), collapse='')
       } else {
-        'all of which are associated to the only one existing regime, which starts from the root'
+        '\nall of which are associated to the only one existing regime'
       }
     },
     length(mod$rawmod$apetree$tip.label), mod$rawmod$apetree$Nnode,
-    if (has_tipvals(mod$rawmod)) 'already set' else 'empty (meaning `lik()` etc. won\'t work)'))
+    if (has_tipvals(mod$rawmod)) 'already set' else 'empty, \nmeaning that `fit()` and `lik()` etc. will not work. See `?set_tips`'))
 }
 
 

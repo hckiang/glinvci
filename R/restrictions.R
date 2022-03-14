@@ -505,7 +505,7 @@ human_name_to_cmdchr = list(
 #'               parfns  =repar$par,
 #'               parjacs =repar$jac,
 #'               parhess =repar$hess)
-#' # The above code is the same as the following short-cut call:
+#' # Actually, to save typing, the following short-cut call is the same as the above:
 #' # mod = glinv(tr, x0, X, repar=repar)
 #'
 #' ### --- STEP 3: Use the model as usual, say, we compute the likelihood at a specified parameter.

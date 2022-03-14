@@ -38,7 +38,7 @@ glinv(
   ...
 )
 
-\method{plot}{glinv}(x, ...)
+\method{plot}{glinv}(x, internal_nodes = TRUE, ...)
 }
 \arguments{
 \item{tree}{A tree of class \code{\link[ape]{phylo}}.}
@@ -93,6 +93,8 @@ short-cut alternative to supplying \code{pardims}, \code{parfns}, \code{parjacs}
 a (usually huge) Hessian matrix \code{gaussian_hessian} with respect to the Gaussian
 parameters \eqn{\Phi, w, V'}. This option significantly increases the amount of memory
 the function uses, in order to store the matrix.}
+
+\item{internal_nodes}{Boolean, whether to plot the internal nodes's numbers}
 }
 \value{
 The \code{glinv} function returns a model object of S3 class \code{glinv}. Elements are:

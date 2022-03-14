@@ -32,8 +32,8 @@ they will be replaced with the new trait values.
 \code{glinv} model but this is will result in error if the method were called on a
 \code{glinv_gauss} model.
 
-This method alters an underlying C structure. See the example for the correct way
-to call it.
+This method alters an underlying C structure, therefore has a mutable-object
+semantic. (See example).
 }
 \examples{
 tr = ape::rtree(10)
