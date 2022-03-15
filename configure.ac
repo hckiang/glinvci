@@ -1,6 +1,6 @@
 AC_PREREQ(2.61)
 
-AC_INIT(glinvci, m4_esyscmd_s([awk -e '/^Version:/ {print $2}' DESCRIPTION]))
+AC_INIT(glinvci, m4_esyscmd_s([awk '/^Version:/ {print $2}' DESCRIPTION]))
 AC_COPYRIGHT(Copyright (C) 2021 Hao Chi Kiang)
 
 

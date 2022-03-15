@@ -5,6 +5,7 @@
 \.travis\.yml
 \.build\.yml
 \.Rd2pdf.*
+TAGS
 LICENSE
 .*_snaps
-
+.*~
