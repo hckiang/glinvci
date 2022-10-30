@@ -1,8 +1,8 @@
 #' Parameterisation functions of Ornstein-Uhlenbeck model
-#' 
+#'
 #' \code{oupar} is a function that maps from the Ornstein-Uhlenbeck model
 #' parameters to the Gaussian parametersation.
-#' 
+#'
 #' By multivariate Ornstein-Uhlenbeck process, we mean
 #'     \deqn{dx(t) = -H(x(t) - \theta)dt + \Sigma_x dW(t)}
 #' where \eqn{H} is a \eqn{k}-by-\eqn{k} matrix with real entries,
@@ -10,17 +10,17 @@
 #' lower-triangular matrix, \eqn{W(t)} is the Brownian motion process.
 #' The parameters of this model is \eqn{(H,\theta,\Sigma_x)},
 #' therefore \eqn{k^2+k+k(k+1)/2} dimensional.
-#' 
+#'
 #' This package uses parameterisation \eqn{(H,\theta,\Sigma_x')}, where
 #' \eqn{H} and \eqn{\theta} is the same as above defined, and \eqn{\Sigma_x'}
 #' is the lower-triangular part of \eqn{\Sigma_x}, except that, only on diagonal
 #' entries, \eqn{\Sigma_x'=log(\Sigma_x)}. The use of logarithm is for
 #' eliminating multiple local maxima in the log-likelihood.
-#' 
+#'
 #' The \code{par} arguemnt is the concatenation of column-major-flattened
 #' \eqn{H}, \eqn{\theta}, and the column-major-flattened lower-triangular part
 #' of \eqn{\Sigma_x'}.
-#' 
+#'
 #' @param par     A numeric vector containing the joint vector of the
 #'                Ornstein-Uhlenbeck drift matrix, long-term mean,
 #'                and volitality matrix, which is a lower-triangular
@@ -38,7 +38,7 @@
 #'                column-major-flattened vector) with respect to the \eqn{i}-th and\eqn{j}-th user parameters;
 #'                and \code{ouhess(...)$w[m,i,j]} and \code{((parhess[[i]])(...))$V[m,i,j]}
 #'                analogously contains second-order derivative of \eqn{w_m} and \eqn{V'_m}.
-#'                
+#' 
 #' @export
 oupar = function (par, t, ...) {
   ## L == k*k+k+k*(k+1)/2 => 3(k*k) + 3k - 2*L == 0

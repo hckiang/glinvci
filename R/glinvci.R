@@ -6,7 +6,7 @@
 #' comparative methods. The framework is designed to be flexible enough that the user can
 #' easily specify their own parameterisation and obtain the maximum-likelihood estimates and
 #' confidence intervals of their own parameters.
-#' 
+#'
 #' @author Hao Chi Kiang, \email{hello@hckiang.com}
 #' @docType package
 #' @name glinvci
@@ -118,7 +118,7 @@ set_tips.glinv       = function (mod, X) {
   if (misschanged) {
     if (any(dtab == 0))
       stop(sprintf("All dimensions at Node #%d are either lost or missing",
-                   which(dtab == 0)[1]))
+                   which(dtab == 0)[1L]))
     mod$rawmod$dimtab   = dtab
     #mod$rawmod$gaussdim = as.integer(sum(dtab[1:(tree$edge[1,1]-1)]))
     mod$rawmod$gaussdim = as.integer(sum(dtab[1:(.Call(Rgetroot,t(tree$edge))-1)]))
@@ -1135,6 +1135,14 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              names(r)[which(names(r) == 'grad')]  = 'score'
+             if (! ('convergence' %in% names(r)) ) {
+               ## Sometimes the library doesn't return a convergence code if it fails, but when
+               ## successful there is always a convergence slot == 0L. So I will manually add back
+               ## the convergence code in case it's missing.
+               ## Example that this happens is when there is an "ABNORMAL_TERMINATION_IN_LNSRCH"
+               ## in the `message` slot.
+               r[['convergence']] = -1L
+             }
              r
            } else if (!use_optim && method=='CG') {
              r = Rcgmin::Rcgmin(par    = parinit,
