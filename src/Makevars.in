@@ -14,7 +14,7 @@ PKG_LIBS=@OMPFLAGS@ $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) # `pkg-config --silence
 ##
 ## But -fno-strict-aliasing doesn't kill the warning, as expected.
 ##
-## It seems that when phytr.o is placed at the beginning, GCC will link some realloc() calls from a
+## It seems that when phytr.o is placed at the beginning, GCC will link some realloc() calls from
 ## the Fortran code to __builtin_realloc instead of stdlib.h's one; and this leads to the
 ## conflict. But if phytr.o is included after dglinv.o or even at the end, the Fortran code's realloc
 ## calls will be linked to stdlib.h's one.
