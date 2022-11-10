@@ -188,6 +188,8 @@ H     = matrix(c(1,0,0,-1), k)
 theta = c(0,0)
 sig   = matrix(c(0.5,0,0,0.5), k)
 sig_x = t(chol(sig))
+# glinvci ALWAYS assumes diagonals of sig_x is in log scale.
+diag(sig_x) = log(diag(sig_x))
 par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=TRUE)])
 print(par_init)
 print(lik(mod)(par_init))

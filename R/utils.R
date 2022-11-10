@@ -25,8 +25,11 @@ list_set_default = function (L, defaults) {
 }
 
 ## Returns: a tree in which edge table ordered depth-first
-## Throws error if: root is not numbered n+1
-fix_tree = function (tr)
+## Throws error if: root is not numbered n+1; or found an edge length that is zero.
+fix_tree = function (tr) {
+  if (0L != length(which(abs(tr$edge.length) < 10e-8) -> whichzero)) {
+    stop('Branch(es) that lead to node no. ', capture.output(str(tr$edge[whichzero,2], give.head=F)), ' have zero or extremely small length. Check tree$edge.length. Multifurcating tree is supported by glinvci but zero-length branch length is not allowed because it covariance matrices will vanish.')
+  }
   replace(tr, 'edge', list({
     if (! ape::is.rooted(tr)) stop('Non-rooted trees are not supported')
     ord = integer(nrow(tr$edge->ecpy)->nr)
@@ -43,3 +46,4 @@ fix_tree = function (tr)
     }
     tr$edge[ord,]
   }))
+}

@@ -23,6 +23,7 @@
 /* #include<omp.h> */
 
 #include<R.h>
+#include<R_ext/Print.h>
 #include<stdlib.h>
 #include<stdio.h>
 #include<strings.h>
@@ -416,7 +417,7 @@ SEXP Rvwphi_paradr(SEXP Rt) {
 }
 
 void my_rchkusr(void *dummy) { (void)dummy; R_CheckUserInterrupt(); }
-int my_rchk() { return !(R_ToplevelExec(my_rchkusr, NULL)); }
+int my_rchk(void) { return !(R_ToplevelExec(my_rchkusr, NULL)); }
 
 /* Get the root ape ID of a tree, that is, the first node that is found to not having a parent. */
 SEXP Rgetroot(SEXP edges) {
@@ -1345,7 +1346,7 @@ void walk_alpha (struct node *pv_rt, double *pv_x0, int pv_i, struct node **pv_a
 		   walk_alpha(global=alpha, iterate=m) because L_ma = R_am. So {m,alpha} is visited exactly once
 		   globally.
 		*/
-		for (z = pv_ancestry[k]->chd; z != pv_ancestry[k+1]; z = z->nxtsb);;
+		for (z = pv_ancestry[k]->chd; z != pv_ancestry[k+1]; z = z->nxtsb) continue;
 		for (z = z->nxtsb; z; z = z->nxtsb) {
 			/* Invariants: stalpha[0].dfqk1_ch never changes from before the for loop to after. */
 			stalpha[q].kv = pv_ancestry[k]->ndat.ku; stalpha[q].n = z;
@@ -1647,7 +1648,7 @@ UPDESC:
 	updategbk_( &(curglob.kv), &(curglob.m->ndat.ku),
 		    &(curglob.gbk_new->fmlfm), &(fmlfm_new), &(curglob.gbk_new->fm), &(fm_new), &(curglob.gbk_new->qm), &(qm_new),
 		    curglob.m->ndat.Lamb,                    curglob.m->ndat.HPhi,              curglob.m->ndat.a, &(curglob.gbk->mdim));
-	for (l=curglob.gbk_new->a; l->nxt; l=l->nxt);;
+	for (l=curglob.gbk_new->a; l->nxt; l=l->nxt) continue;
 	l->nxt     = a_new;
 	a_new->siz = curglob.m->ndat.ku;
 	a_new->dat = curglob.m->ndat.a;
@@ -1798,6 +1799,8 @@ void dndgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, dou
 	if (t->ndat.x) {
 		tcgod(t, kv, v, w, phi, c, gam, o, d, info);
 		if (*info != 0)	 {
+			Rprintf("Problematic node: the tip #%d\n", t->id+1);
+			*info = -2;
 			*info = -1;
 			return;
 		}
@@ -1810,6 +1813,7 @@ void dndgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, dou
 		}
 		merg(t, kv, v, w, phi, c1, gam1, o1, d1, c, gam, o, d, info);
 		if (*info != 0) {
+			Rprintf("Problematic lineage: the branch that leads to node #%d\n", t->id+1);
 			*info = -2;
 			return;
 		}
@@ -2324,7 +2328,7 @@ SEXP Rdeschpos(SEXP tr, SEXP Rx, SEXP Ry) {
 	return desc;
 }
 
-SEXP Rtested() {
+SEXP Rtested(void) {
 	SEXP ret; int *x;
 	ret = PROTECT(allocVector(INTSXP, 1));
 	x = INTEGER(ret);
@@ -3263,9 +3267,9 @@ MEMFAIL:
 }
 
 
-extern void (glinvtestfloatIEEE01_)();
+extern void (glinvtestfloatIEEE01_)(void);
 extern SEXP glinvtestfloatIEEE02 (SEXP);
-extern void (glinvtestfloatIEEE03)();
+extern void (glinvtestfloatIEEE03)(void);
 static const R_CallMethodDef callMethods[]  = {
 	{"Rparamrestrict",       (DL_FUNC) &Rparamrestrict,       4},
 	{"Rpostjacrestrict",     (DL_FUNC) &Rpostjacrestrict,     4},
@@ -3295,34 +3299,34 @@ static const R_CallMethodDef callMethods[]  = {
 	{NULL, NULL, 0}
 };
 
-extern void (d0geouvwphi_)();
+extern void (d0geouvwphi_)(void);
 static R_NativePrimitiveArgType d0geouvwphi_type[] = {
 	REALSXP,INTSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,CPLXSXP,CPLXSXP,
 	CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
-extern void (ougejac_)();
+extern void (ougejac_)(void);
 static R_NativePrimitiveArgType ougejac_type[] = {
 	REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,REALSXP,INTSXP};
 static R_NativePrimitiveArgType lnunchol_type[] = {
 	REALSXP, INTSXP, REALSXP, INTSXP, REALSXP, INTSXP};
-extern void (hphiha_)();
+extern void (hphiha_)(void);
 static R_NativePrimitiveArgType hphiha_type[] = {
 	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP,INTSXP};
-extern void (hvha_)();
+extern void (hvha_)(void);
 static R_NativePrimitiveArgType hvha_type[] = {
 	REALSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
-extern void (hvdadl_)();
+extern void (hvdadl_)(void);
 static R_NativePrimitiveArgType hvdadl_type[] = {
 	REALSXP,REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP};
-extern void (hvhl_)();
+extern void (hvhl_)(void);
 static R_NativePrimitiveArgType hvhl_type[] = {
 	REALSXP, INTSXP, REALSXP, CPLXSXP, CPLXSXP, CPLXSXP, REALSXP, INTSXP, CPLXSXP, INTSXP, REALSXP};
-extern void (hwdthetada_)();
+extern void (hwdthetada_)(void);
 static R_NativePrimitiveArgType hwdthetada_type[] = {
 	INTSXP, REALSXP, REALSXP};
-extern void (dphida_)();
+extern void (dphida_)(void);
 static R_NativePrimitiveArgType dphida_type[] = {
 	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP};
-extern void (hwha_)();
+extern void (hwha_)(void);
 static R_NativePrimitiveArgType hwha_type[] = {INTSXP,REALSXP,REALSXP,REALSXP};
 static R_NativePrimitiveArgType glinvtestfloatIEEE01_type[] = {REALSXP,REALSXP};
 static R_NativePrimitiveArgType glinvtestfloatIEEE03_type[] = {REALSXP,REALSXP};
