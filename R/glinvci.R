@@ -256,7 +256,7 @@ rglinv.glinv_gauss = function (mod, par, Nsamp=1, simplify=TRUE) {
 #' @references      Mitov V, Bartoszek K, Asimomitis G, Stadler T (2019). “Fast likelihood calculation for multivariate Gaussian phylogenetic models with shifts.” Theor. Popul. Biol.. https://doi.org/10.1016/j.tpb.2019.11.005.
 #' @export
 glinv_gauss = function (tree, x0, dimtab=NULL, X=NULL) {
-  if (!'phylo' %in% class(tree))                stop('The tree must be an ape tree')
+  if (!inherits(tree, 'phylo'))                 stop('The tree must be an ape tree')
   if (!ape::is.rooted(tree))                    stop('The input phylogenetic tree must be rooted')
   if (!is.numeric(x0))                          stop("x0 must be numeric")
   if (! (all(!is.na(x0)) && all(!is.nan(x0))))  stop("x0 must not contain NA or NaN")
@@ -651,7 +651,7 @@ tip_purge.NULL = function (X) NULL
 #' }
 #' @export
 glinv = function (tree, x0, X, parfns=NULL, pardims=NULL, regimes=NULL, parjacs=NULL, parhess=NULL, repar=NULL) {
-  if (!'phylo' %in% class(tree)) stop("`tree` must be of class ape::phylo")
+  if (!inherits(tree, 'phylo'))  stop("`tree` must be of class ape::phylo")
   if (!ape::is.rooted(tree))     stop("Only rooted trees are supported.")
   origtr = tree
   tree = fix_tree(tree)
@@ -1259,7 +1259,7 @@ varest.glinv = function (mod,
       stop('Invalid argument: `fitted`')
   } else
     mlepar = fitted
-  if (class(mod) != 'glinv')
+  if (! inherits(mod, 'glinv'))
     stop('The mod parameter must be of class glinv')
   if (length(mlepar) != mod$nparams)
     stop(sprintf('Your model should have %d parameters but I got %d', mod$nparams, length(mlepar)))

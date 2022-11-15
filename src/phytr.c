@@ -3269,7 +3269,7 @@ MEMFAIL:
 
 extern void (glinvtestfloatIEEE01_)(void);
 extern SEXP glinvtestfloatIEEE02 (SEXP);
-extern void (glinvtestfloatIEEE03)(void);
+extern void (glinvtestfloatIEEE03)(double *, double *);
 static const R_CallMethodDef callMethods[]  = {
 	{"Rparamrestrict",       (DL_FUNC) &Rparamrestrict,       4},
 	{"Rpostjacrestrict",     (DL_FUNC) &Rpostjacrestrict,     4},

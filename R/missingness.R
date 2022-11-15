@@ -9,7 +9,7 @@ trait_missingness = function (x) {
 }
 
 tag_missing = function (mod, X) {
-  if (!('glinv_gauss' %in% class(mod))) stop("Invalid argument: mod")
+  if (!inherits(mod, 'glinv_gauss')) stop("Invalid argument: mod")
   M = .Call(Rtagmiss, mod$ctree, length(unique(c(mod$apetree$edge))),
             trait_missingness(X))
   d = dim(M)
@@ -19,7 +19,7 @@ tag_missing = function (mod, X) {
 }
 
 tag_regimes = function (mod, roots, theroot=.Call(Rgetroot,t(mod$rawmod$apetree$edge))) {
-  if (!('glinv_gauss' %in% class(mod))) stop("Invalid argument: mod")
+  if (!inherits(mod, 'glinv_gauss')) stop("Invalid argument: mod")
   if (!is.numeric(roots))
     stop(sprintf(
       "`roots` must be numeric and contain node numbers but I've received an object of class `%s`",
