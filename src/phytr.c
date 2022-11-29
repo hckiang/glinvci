@@ -3267,7 +3267,7 @@ MEMFAIL:
 }
 
 
-extern void (glinvtestfloatIEEE01_)(void);
+extern void (glinvtestfloatIEEE01_)(double *, double*);
 extern SEXP glinvtestfloatIEEE02 (SEXP);
 extern void (glinvtestfloatIEEE03)(double *, double *);
 static const R_CallMethodDef callMethods[]  = {
@@ -3298,35 +3298,36 @@ static const R_CallMethodDef callMethods[]  = {
 	{"glinvtestfloatIEEE02", (DL_FUNC) &glinvtestfloatIEEE02, 1},
 	{NULL, NULL, 0}
 };
-
-extern void (d0geouvwphi_)(void);
+struct fortcplx_t {double dr; double di;}; /* Needed just for GCC's LTO warning... */
+typedef struct fortcplx_t fortcplx_t;
+extern void (d0geouvwphi_)(double *,int *,double *,double *,double *,double *,double *,double *,fortcplx_t *,fortcplx_t *,
+	fortcplx_t *,double *,int *,fortcplx_t *,int *,int *,int *);
 static R_NativePrimitiveArgType d0geouvwphi_type[] = {
 	REALSXP,INTSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,REALSXP,CPLXSXP,CPLXSXP,
 	CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
-extern void (ougejac_)(void);
+extern void (ougejac_)(double *,int *,double *,fortcplx_t *,fortcplx_t *,fortcplx_t *,double *,int *,fortcplx_t *,int *,int *,double *,int *);
 static R_NativePrimitiveArgType ougejac_type[] = {
 	REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,REALSXP,INTSXP};
 static R_NativePrimitiveArgType lnunchol_type[] = {
 	REALSXP, INTSXP, REALSXP, INTSXP, REALSXP, INTSXP};
-extern void (hphiha_)(void);
+extern void (hphiha_)(double *,int *,fortcplx_t *,fortcplx_t *,fortcplx_t *,double *,fortcplx_t *,int *,int *);
 static R_NativePrimitiveArgType hphiha_type[] = {
 	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP,INTSXP};
-extern void (hvha_)(void);
+extern void (hvha_)(double *,double *,double *,int *,fortcplx_t *,fortcplx_t *,fortcplx_t *,double *,double *,int *,fortcplx_t *,int *,int *,int *);
 static R_NativePrimitiveArgType hvha_type[] = {
 	REALSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP,INTSXP};
-extern void (hvdadl_)(void);
+extern void (hvdadl_)(double *,double *,int *,double *,fortcplx_t *,fortcplx_t *,fortcplx_t *,double *,double *,int *,fortcplx_t *,int *,int *);
 static R_NativePrimitiveArgType hvdadl_type[] = {
 	REALSXP,REALSXP,INTSXP,REALSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,REALSXP,INTSXP,CPLXSXP,INTSXP,INTSXP};
-extern void (hvhl_)(void);
+extern void (hvhl_)(double *, int *, double *, fortcplx_t *, fortcplx_t *, fortcplx_t *, double *, int *, fortcplx_t *, int *, double *);
 static R_NativePrimitiveArgType hvhl_type[] = {
 	REALSXP, INTSXP, REALSXP, CPLXSXP, CPLXSXP, CPLXSXP, REALSXP, INTSXP, CPLXSXP, INTSXP, REALSXP};
-extern void (hwdthetada_)(void);
-static R_NativePrimitiveArgType hwdthetada_type[] = {
-	INTSXP, REALSXP, REALSXP};
-extern void (dphida_)(void);
+extern void (hwdthetada_)(int *, double *, double *);
+static R_NativePrimitiveArgType hwdthetada_type[] = { INTSXP, REALSXP, REALSXP };
+extern void (dphida_)(double *, int *, fortcplx_t *, fortcplx_t *, fortcplx_t *, double *, fortcplx_t *, int *);
 static R_NativePrimitiveArgType dphida_type[] = {
 	REALSXP,INTSXP,CPLXSXP,CPLXSXP,CPLXSXP,REALSXP,CPLXSXP,INTSXP};
-extern void (hwha_)(void);
+extern void (hwha_)(int *, double*, double *, double *);
 static R_NativePrimitiveArgType hwha_type[] = {INTSXP,REALSXP,REALSXP,REALSXP};
 static R_NativePrimitiveArgType glinvtestfloatIEEE01_type[] = {REALSXP,REALSXP};
 static R_NativePrimitiveArgType glinvtestfloatIEEE03_type[] = {REALSXP,REALSXP};

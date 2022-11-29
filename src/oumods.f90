@@ -1130,7 +1130,6 @@ contains
                 enddo
              enddo
           enddo
-          
           do b2 = 1,ku
              !! Assume b1 == a2 here.
              fac1 = cmplx(0.0_c_double, 0.0_c_double, kind(1._c_double))

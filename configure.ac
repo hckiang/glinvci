@@ -7,7 +7,7 @@ AC_COPYRIGHT(Copyright (C) 2021 Hao Chi Kiang)
 ## Determine Install Location of R
 : ${R_HOME=$(R RHOME)}
 if test -z "${R_HOME}"; then
-    AC_MSG_ERROR([Could not determine R_HOME.])   
+    AC_MSG_ERROR([Could not determine R_HOME.])
 fi
 
 ## Get CC from R, and use this to get OpenMP flag from Autoconf.
