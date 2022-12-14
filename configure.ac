@@ -60,7 +60,11 @@ case "${RBLAS}" in
 esac
 AC_MSG_RESULT([${ac_isopenblas}])
 if test "${ac_isopenblas}" = yes; then
-  AC_MSG_WARN([Turning off multi-threading for safety because OpenBLAS may not be thread-safe.])
+  AC_MSG_WARN([Turning off multi-threading for safety because OpenBLAS may not be thread-safe. This is because the OpenBLAS dynamic library needs to be *compiled* with
+  the correct flags in order to be called safely from OpenMP threads, in addition to
+  having your environmental variables set correctly. Users are recommended to use
+  netlib BLAS on Unix-like systems as glinvci is already multi-threaded and having
+  fancy BLAS library most likely won't improve performance.])
 fi
 
 ## If autoconf has found a working OpenMP flag than we compile
