@@ -984,13 +984,17 @@ contains
     integer(c_int), intent(in)  :: ku, i,p,q
     real(c_double), intent(in)  :: solV(ku, ku), solVxw(ku)
     real(c_double), intent(out) :: dwdv
-    dwdv = 2.0_c_double * solV(i,p) * solVxw(q)
+!    dwdv = 2.0_c_double * solV(i,p) * solVxw(q)
+    dwdv = solV(q,i) * solVxw(p) + solV(p,i) * solVxw(q)
+!    dwdv = 0_c_double
   end subroutine
   recursive subroutine hcdwdvgen (solVLb, solVLsO, ku, i,p,q, dwdv)  bind(C, name="hcdwdvgen_")
     integer(c_int), intent(in)  :: ku, i,p,q
     real(c_double), intent(in)  :: solVLsO(ku, ku), solVLb(ku)
     real(c_double), intent(out) :: dwdv
-    dwdv = 2.0_c_double * solVLsO(i,p) * solVLb(q)
+!    dwdv = 2.0_c_double * solVLsO(i,p) * solVLb(q)
+    dwdv = solVLsO(q,i) * solVLb(p) + solVLsO(p,i) * solVLb(q)
+!    dwdv = 0_c_double
   end subroutine
 
   recursive subroutine hcdvdvtip (solVxw, solV, ku, i,j,p,q, dvdv) bind(C, name="hcdvdvtip_")
