@@ -10,6 +10,7 @@
 #' @author Hao Chi Kiang, \email{hello@hckiang.com}
 #' @docType package
 #' @name glinvci
+#' @aliases glinvci-package
 #' @useDynLib glinvci, .registration=TRUE
 #' @importFrom utils globalVariables capture.output str
 NULL

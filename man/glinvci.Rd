@@ -3,6 +3,7 @@
 \docType{package}
 \name{glinvci}
 \alias{glinvci}
+\alias{glinvci-package}
 \title{glinvci: Confidence intervals and hypothesis testing for GLInv model}
 \description{
 The glinvci package provides a framework for computing the maximum-likelihood estimates
