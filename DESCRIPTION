@@ -1,7 +1,7 @@
 Package: glinvci
 Type: Package
 Title: Phylogenetic Comparative Methods with Uncertainty Estimates
-Version: 1.1.21.9001
+Version: 1.1.21.9003
 Date: 2023-08-21
 Authors@R: c(person(family="Kiang", given="Hao Chi", role=c("cre","aut"), email="hello@hckiang.com"))
 Maintainer: Hao Chi Kiang <hello@hckiang.com>
@@ -13,7 +13,7 @@ Encoding: UTF-8
 URL: https://git.sr.ht/~hckiang/glinvci, https://github.com/hckiang/glinvci
 Depends: R (>= 3.3.0)
 Imports:
-    Rcgmin,
+    optimx,
     lbfgsb3c,
     BB,
     ape,

@@ -1080,8 +1080,9 @@ fit = function (mod, ...) UseMethod('fit')
 #' optimisation problem.
 #' 
 #' If \code{method} is \code{L-BFGS-B}, then \code{\link[lbfgsb3c]{lbfgsb3c}} is used for optimisation;
-#' if it is \code{CG} then \code{\link[Rcgmin]{Rcgmin}} is used; if it is \code{BB} then
-#' \code{\link[BB]{BBoptim}} is used, otherwise the method argument is passed to \code{\link{optim}}.
+#' if it is \code{CG} then \code{\link[Rcgmin]{Rcgmin}} from the \code{optimx} package is used; if it
+#' is \code{BB} then \code{\link[BB]{BBoptim}} is used, otherwise the method argument is passed to
+#'  \code{\link{optim}}.
 #'
 #' By default, \code{L-BFGS-B} declares convergence when the change of function value is small, \code{CG}
 #' tests stops when change of gradient squared-Euclidean-norm is small, \code{BB} stops when either the
@@ -1148,16 +1149,16 @@ fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=In
              }
              r
            } else if (!use_optim && method=='CG') {
-             r = Rcgmin::Rcgmin(par    = parinit,
-                            fn     = default_ifwrong(fit_fnwrap(lik(mod), -1),  1,          -Inf),
-                            gr     = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
-                            lower = lower,
-                            upper = upper,
-                            control= list_set_default(
-                              control,
-                              list(trace = 1,
-                                   maxit = 500000,
-                                   tol=mod$nparams*mod$nparams*5e-10))) # Default is about (npar^2)*1e-16.
+             r = optimx::Rcgmin(par    = parinit,
+                                fn     = default_ifwrong(fit_fnwrap(lik(mod), -1),  1,          -Inf),
+                                gr     = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
+                                lower = lower,
+                                upper = upper,
+                                control= list_set_default(
+                                  control,
+                                  list(trace = 1,
+                                       maxit = 500000,
+                                       tol=mod$nparams*mod$nparams*5e-10))) # Default is about (npar^2)*1e-16.
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
              r = c(r, list(score = grad(mod)(r[['mlepar']])))

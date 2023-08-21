@@ -16,7 +16,7 @@ sources:
 tasks:
   - setup: |
       if [ -f glinvci/DESCRIPTION ]; then
-          Rscript -e 'dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE); install.packages(c("rlang","knitr","testthat","Rcgmin","lbfgsb3c","BB","ape","numDeriv","plyr"), repos="https://cloud.r-project.org", lib=Sys.getenv("R_LIBS_USER"))'
+          Rscript -e 'dir.create(path = Sys.getenv("R_LIBS_USER"), showWarnings = FALSE, recursive = TRUE); install.packages(c("rlang","knitr","testthat","optimx","lbfgsb3c","BB","ape","numDeriv","plyr"), repos="https://cloud.r-project.org", lib=Sys.getenv("R_LIBS_USER"))'
       fi
   - build: |
       if [ -f glinvci/DESCRIPTION ]; then

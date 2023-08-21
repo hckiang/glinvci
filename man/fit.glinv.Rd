@@ -56,8 +56,9 @@ optimisation problem.
 }
 \details{
 If \code{method} is \code{L-BFGS-B}, then \code{\link[lbfgsb3c]{lbfgsb3c}} is used for optimisation;
-if it is \code{CG} then \code{\link[Rcgmin]{Rcgmin}} is used; if it is \code{BB} then
-\code{\link[BB]{BBoptim}} is used, otherwise the method argument is passed to \code{\link{optim}}.
+if it is \code{CG} then \code{\link[Rcgmin]{Rcgmin}} from the \code{optimx} package is used; if it
+is \code{BB} then \code{\link[BB]{BBoptim}} is used, otherwise the method argument is passed to
+ \code{\link{optim}}.
 
 By default, \code{L-BFGS-B} declares convergence when the change of function value is small, \code{CG}
 tests stops when change of gradient squared-Euclidean-norm is small, \code{BB} stops when either the
