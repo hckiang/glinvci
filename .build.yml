@@ -9,6 +9,7 @@ packages:
   - texlive-bibtexextra
   - gcc-fortran
   - gcc-libs
+  - cmake
 secrets:
   - cb466cad-72fe-4083-9162-dcb2950df91b
 sources:
