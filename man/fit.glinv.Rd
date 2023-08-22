@@ -5,7 +5,7 @@
 \title{Fitting a GLInv model via numerical optimisation}
 \usage{
 \method{fit}{glinv}(
-  mod,
+  object,
   parinit = NULL,
   method = "L-BFGS-B",
   lower = -Inf,
@@ -18,7 +18,7 @@
 )
 }
 \arguments{
-\item{mod}{An object of class \code{\link{glinv}}.}
+\item{object}{An object of class \code{\link{glinv}}.}
 
 \item{parinit}{A vector, parameter for initialisation of the optimisation routine.}
 

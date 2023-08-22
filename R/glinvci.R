@@ -22,11 +22,11 @@ globalVariables(c('INFO__', 'test_that'))
 
 ndesc = function (x, ...) UseMethod('ndesc')
 #' @exportS3Method
-ndesc.glinv_gauss = function (self) .Call(Rndesc, self$ctree)
+ndesc.glinv_gauss = function (x, ...) .Call(Rndesc, x$ctree)
 
 nparams = function (x, ...) UseMethod('nparams')
 #' @exportS3Method
-nparams.glinv_gauss = function (self) .Call(Rnparams, self$ctree)
+nparams.glinv_gauss = function (x, ...) .Call(Rnparams, x$ctree)
 
 #' Check if a \code{glinv_gauss} model contains trait values at their tips.
 #'
@@ -514,19 +514,19 @@ print.glinv_gauss = function (x, ...) {
 ## does the right thing in exporting S3method() directives without export()
 ## directive despite its name suggests that it's 'exported'.
 
-tip_purge = function (x, ...) UseMethod('tip_purge')
+tip_purge = function (X, ...) UseMethod('tip_purge')
 #' @exportS3Method
-tip_purge.list = function (X)
+tip_purge.list = function (X, ...)
   lapply(seq_len(length(X)), function(i) {
     y = X[[i]]
     y[(!is.na(y))&(!is.nan(y))]})
 #' @exportS3Method
-tip_purge.matrix = function (X)
+tip_purge.matrix = function (X, ...)
   lapply(seq_len(ncol(X)), function(i) {
     y = X[,i]
     y[(!is.na(y))&(!is.nan(y))]})
 #' @exportS3Method
-tip_purge.NULL = function (X) NULL
+tip_purge.NULL = function (X, ...) NULL
 
 #' Construct an GLInv model with respect to user-specified parametrisation
 #'
@@ -1110,7 +1110,7 @@ generics::fit
 #' [\code{lower}, \code{upper}].
 #' 
 #' 
-#' @param mod          An object of class \code{\link{glinv}}.
+#' @param object       An object of class \code{\link{glinv}}.
 #' @param parinit      A vector, parameter for initialisation of the optimisation routine.
 #' @param method       One of \code{L-BFGS-B}, \code{CG}, \code{BB}, or any other methods which is accepted by optim.
 #' @param lower        A vector of lower bounds on the parameters.
@@ -1128,7 +1128,8 @@ generics::fit
 #'                     \item{convergence}{Zero if the optimisation routine has converged successfully.}
 #'                     \item{message}{A message from the optimisation routine.}
 #' @export
-fit.glinv = function (mod, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, project=NULL, projectArgs=NULL, control=list(), ...) {
+fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, project=NULL, projectArgs=NULL, control=list(), ...) {
+  mod = object
   ensure_reinit(mod)
   if (is.null(parinit))
     parinit = if (is.finite(lower) && is.finite(upper))
