@@ -3,6 +3,7 @@ packages:
   - r
   - linux-headers
   - texlive-core
+  - texlive-latexextra
   - texlive-fontsextra
   - texlive-formatsextra
   - texlive-science
