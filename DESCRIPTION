@@ -20,6 +20,7 @@ Imports:
     numDeriv,
     plyr,
     rlang,
+    generics,
     utils,
     stats
 Suggests:

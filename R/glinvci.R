@@ -21,9 +21,11 @@ NULL
 globalVariables(c('INFO__', 'test_that'))
 
 ndesc = function (x, ...) UseMethod('ndesc')
+#' @exportS3Method
 ndesc.glinv_gauss = function (self) .Call(Rndesc, self$ctree)
 
 nparams = function (x, ...) UseMethod('nparams')
+#' @exportS3Method
 nparams.glinv_gauss = function (self) .Call(Rnparams, self$ctree)
 
 #' Check if a \code{glinv_gauss} model contains trait values at their tips.
@@ -506,17 +508,24 @@ print.glinv_gauss = function (x, ...) {
             if (has_tipvals(x)) "already set." else "empty (meaning `lik()` etc. won't work).","\n"))
 }
 
+## S3 generics might not be exported but the methods must have a S3method()
+## directive in NAMESPACE. This is clear from 'Writing R extension'
+## But Roxygen2's side is a bit weird; it seems '@exportS3Method'
+## does the right thing in exporting S3method() directives without export()
+## directive despite its name suggests that it's 'exported'.
 
 tip_purge = function (x, ...) UseMethod('tip_purge')
+#' @exportS3Method
 tip_purge.list = function (X)
   lapply(seq_len(length(X)), function(i) {
     y = X[[i]]
     y[(!is.na(y))&(!is.nan(y))]})
-
+#' @exportS3Method
 tip_purge.matrix = function (X)
   lapply(seq_len(ncol(X)), function(i) {
     y = X[,i]
     y[(!is.na(y))&(!is.nan(y))]})
+#' @exportS3Method
 tip_purge.NULL = function (X) NULL
 
 #' Construct an GLInv model with respect to user-specified parametrisation
@@ -1070,9 +1079,9 @@ default_ifwrong = function(f,n,default)
 fit_fnwrap = function (f, fnscale) function (...) f(...)/fnscale
 fit_grwrap = function (g, fnscale) function (...) g(...)/fnscale
 
-#' @rdname fit.glinv
+#' @importFrom generics fit
 #' @export
-fit = function (mod, ...) UseMethod('fit')
+generics::fit
 
 #' Fitting a GLInv model via numerical optimisation
 #' 
