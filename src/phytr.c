@@ -1,5 +1,13 @@
 /* -*- tab-width: 8; indent-tabs-mode: t; -*- */
 
+/* CRAN checks will complain with unused variables. They exist on purpose and
+   this attribute will mute the compiler warning. */
+#if defined(__GNUC__) || defined(__clang__)
+#define __UNUSED __attribute__((unused))
+#else
+#define __UNUSED
+#endif
+
 /* Microsoft had only added support to the C99 _Pragma() in 2020 summer. For older
    MS compilers we need __pragma(). */
 #ifdef _OPENMP
@@ -289,8 +297,8 @@ void dndgcgod (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, dou
 	       fn_getvwphi get_VwPhi, fn_tcgod tcgod, fn_merg merg, void *wsp, size_t swsp, size_t lwsp, int *info);
 void hgcgod     (struct node *t, SEXP VwPhi_L, int kv, double *c, double *gam, double *o, double *d,
 		 fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, int *info);
-int hess        (struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, double *extrmem, double *dir, int ndir);
-void grad       (struct node *t, double *x0);
+int hess        (struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, double *extrmem, double *dir, int ndir, int nthd);
+void grad       (struct node *t, double *x0, int nthd);
 void gradwk     (struct node *a, struct node *b, struct node *c, double *x0, struct diffbk bk, int kr);
 int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk, double *x0, struct node *rt, SEXP VwPhi_L,
 	       fn_getvwphi get_VwPhi, void *wsp, size_t swsp, size_t lwsp, int *interrupted, double *extrmem, double *dir, int ndir);
@@ -785,7 +793,7 @@ MEMFAIL:
 }
 
 
-void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi) {
+void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi, int nthd) {
 	struct node *p;
 	int info;
 	double *c, *gam, *o, *d;
@@ -816,14 +824,14 @@ void dphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 		};
 	}
 	phygausslik_(c, gam, o, d, x0, &(t->ndat.ku), &k, lik);
-	grad(t, x0);
+	grad(t, x0, nthd);
 	free(wsp);
 	return;
 MEMFAIL:
 	error("dphylik(): Error allocating memory. ");
 }
 
-void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi, double *hessmem, double *dir, int ndir) {
+void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_getvwphi get_VwPhi, double *hessmem, double *dir, int ndir, int nthd) {
 	struct node *p;
 	double *d;
 	void *wsp;
@@ -856,9 +864,9 @@ void hphylik(struct node *t, SEXP VwPhi_L, double *x0, int k, double *lik, fn_ge
 		};
 	}
 	phygausslik_(t->ndat.sc, t->ndat.sgam, t->ndat.so, d, x0, &(t->ndat.ku), &k, lik);
-	grad(t, x0);
+	grad(t, x0, nthd);
 	swsp -= sizeof(double);
-	ret = hess(t, VwPhi_L, x0, get_VwPhi, wsp, swsp, lwsp, hessmem, dir, ndir);
+	ret = hess(t, VwPhi_L, x0, get_VwPhi, wsp, swsp, lwsp, hessmem, dir, ndir, nthd);
 	free(wsp);
 	switch (ret) {
 	case 3:
@@ -890,12 +898,12 @@ MEMFAIL:
 }
 void freediffbk(struct diffbk *p) { free(p->z); }
 
-void grad(struct node *t, double *x0) {
+void grad(struct node *t, double *x0, int nthd) {
 	/* Pre-condition: t is the global root. */
 	struct diffbk bk = {0};
 	mkdiffbk(&bk, t->ndat.ku, t->ndat.ku);
 	diagone_(bk.F, &(t->ndat.ku));
-	__PRAGMA__("omp parallel")
+	__PRAGMA__("omp parallel num_threads(nthd)")
 	{
 		__PRAGMA__("omp master")
 		{
@@ -1002,7 +1010,7 @@ static double *thrpv_bilinmat;	/* Thread-private. Only used in online bilinear f
 __PRAGMA__("omp threadprivate(thrpv_bilinmat)")
 
 int hess(struct node *t, SEXP VwPhi_L, double *x0, fn_getvwphi get_VwPhi, void *wsp, size_t swsp,
-	 size_t lwsp, double *extrmem, double *dir, int ndir) {
+	 size_t lwsp, double *extrmem, double *dir, int ndir, int nthd) {
 	/* Pre-condition: t is the global root. */
 	struct hessglbbk gbk;	/* Notice this is on the stack. */
 	int ictx,i,j,m,n, wkret;
@@ -1140,7 +1148,7 @@ UPDESC:
 		   ourselves. Also, calling flush without argument means that the malloc'd areas are
 		   also all flushed, but when called with argument only the pointers to malloc'd memory
 		   is flushed. */
-		__PRAGMA__("omp parallel shared(wkret)")
+		__PRAGMA__("omp parallel shared(wkret) num_threads(nthd)")
 		{
 			thrpv_bilinmat = NULL; /* Thread private. */
 			if (dir) {
@@ -1462,7 +1470,7 @@ int hessglobwk(struct node *m, struct node *parent, struct hessglbbk *gbk,
 		int kv;
 	} *stglob, curglob;
 	struct node **ancestry;
-	int ndesc_sum;
+	int ndesc_sum __UNUSED;
 	int i=1;
 	int mdim;
 	int depth = 0;
@@ -1952,18 +1960,18 @@ SEXP Rndphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
 	UNPROTECT(1);
 	return l;
 }
-SEXP Rdphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
+SEXP Rdphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP nthd) {
 	struct node *t;
 	SEXP l;
 	t = R_ExternalPtrAddr(p);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	dphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t,VwPhi_L));
+	dphylik((struct node *) t, VwPhi_L, REAL(x0), (INTEGER(k))[0], REAL(l), chk_VwPhi(t,VwPhi_L), *(INTEGER(nthd)));
 	UNPROTECT(1);
 	return l;
 }
 
-SEXP Rhphylik_dir(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP dir) {
+SEXP Rhphylik_dir(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP dir, SEXP nthd) {
 	struct node *t;
 	SEXP l, Rndirdim, Rres, Rres_dim;
 	int *ndirdim, ndir, *res_dim;
@@ -1984,24 +1992,24 @@ SEXP Rhphylik_dir(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP dir) {
 	res_dim[1] = ndir;
 	setAttrib(Rres, R_DimSymbol, Rres_dim);
 	l = PROTECT(allocVector(REALSXP, 1));
-	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), REAL(Rres), REAL(dir), ndir);
+	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), REAL(Rres), REAL(dir), ndir, *(INTEGER(nthd)));
 	t->u.rbk.hessflat_needs_free = 0;
 	t->u.rbk.hessflat            = NULL;
 	UNPROTECT(3);
 	return Rres;
 }
 
-SEXP Rhphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k) {
+SEXP Rhphylik(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP nthd) {
 	struct node *t;
 	SEXP l;
 	t = R_ExternalPtrAddr(p);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), NULL, NULL, 0);
+	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), NULL, NULL, 0, *(INTEGER(nthd)));
 	UNPROTECT(1);
 	return l;
 }
-SEXP Rhphylik_big(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP hessfp) {
+SEXP Rhphylik_big(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP hessfp, SEXP nthd) {
 	struct node *t;
 	SEXP l;
 	double *hessflat;
@@ -2009,7 +2017,7 @@ SEXP Rhphylik_big(SEXP p, SEXP VwPhi_L, SEXP x0, SEXP k, SEXP hessfp) {
 	hessflat = R_ExternalPtrAddr(hessfp);
 	if (!(t->u.rbk.xavail)) error("Cannot compute likelihood or its gradient/Hessian using empty tip values");
 	l = PROTECT(allocVector(REALSXP, 1));
-	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), hessflat, NULL, 0);
+	hphylik((struct node *) t, VwPhi_L, REAL(x0), INTEGER(k)[0], REAL(l), chk_VwPhi(t, VwPhi_L), hessflat, NULL, 0, *(INTEGER(nthd)));
 	UNPROTECT(1);
 	return l;
 }
@@ -2963,7 +2971,8 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
            3: Expects input type for 'V';
            4: Expects input type for 'L';
            (5: Expects further argument. Not yet implemented.) */
-	int curstate = 1, i, ihessin, isquashed;
+	int curstate = 1, i, isquashed;
+	int ihessin __UNUSED;
 	int chked_jaclower = 0;
 	int chked_jacthis = 0;
 	int cnt_M = 0; int cnt_V = 0; int cnt_L = 0;
@@ -3277,9 +3286,9 @@ static const R_CallMethodDef callMethods[]  = {
 	{"Rcurvifyhess",         (DL_FUNC) &Rcurvifyhess,         5},
 	{"Rchkusrhess",          (DL_FUNC) &Rchkusrhess,          7},
 	{"Rextractderivvec",     (DL_FUNC) &Rextractderivvec,     1},
-	{"Rdphylik",             (DL_FUNC) &Rdphylik,             4},
-	{"Rhphylik",             (DL_FUNC) &Rhphylik,             4},
-	{"Rhphylik_dir",         (DL_FUNC) &Rhphylik_dir,         5},
+	{"Rdphylik",             (DL_FUNC) &Rdphylik,             5},
+	{"Rhphylik",             (DL_FUNC) &Rhphylik,             5},
+	{"Rhphylik_dir",         (DL_FUNC) &Rhphylik_dir,         6},
 	{"Rextracthessall",      (DL_FUNC) &Rextracthessall,      1},
 	{"Rndesc",               (DL_FUNC) &Rndesc,               1},
 	{"Rnparams",             (DL_FUNC) &Rnparams,             1},

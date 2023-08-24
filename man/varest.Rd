@@ -12,6 +12,7 @@ varest(mod, ...)
   fitted,
   method = "analytical",
   numDerivArgs = list(method = "Richardson", method.args = list(d = 0.5, r = 3)),
+  num_threads = 2L,
   store_gaussian_hessian = FALSE,
   control.mc = list(),
   ...
@@ -30,6 +31,8 @@ is computed.}
 
 \item{numDerivArgs}{Arguments to pass to \code{numDeriv::\link[numDeriv]{jacobian}}. Only used if the
 user did not supply \code{parjacs} when constructing \code{mod}.}
+
+\item{num_threads}{Number of threads to use.}
 
 \item{store_gaussian_hessian}{If \code{TRUE} and \code{method} is not \code{mc}, the returned list will contain
 a (usually huge) Hessian matrix \code{gaussian_hessian} with respect to the Gaussian

@@ -12,9 +12,17 @@ glinv_gauss(tree, x0, dimtab = NULL, X = NULL)
 
 \method{lik}{glinv_gauss}(mod, par = NULL, ...)
 
-\method{grad}{glinv_gauss}(mod, par = NULL, lik = FALSE, ...)
+\method{grad}{glinv_gauss}(mod, par = NULL, lik = FALSE, num_threads = 2L, ...)
 
-\method{hess}{glinv_gauss}(mod, par = NULL, lik = FALSE, grad = FALSE, directions = NULL, ...)
+\method{hess}{glinv_gauss}(
+  mod,
+  par = NULL,
+  lik = FALSE,
+  grad = FALSE,
+  directions = NULL,
+  num_threads = 2L,
+  ...
+)
 
 \method{print}{glinv_gauss}(x, ...)
 }
@@ -40,6 +48,8 @@ The latter form is required if not all the tips has the same number of dimension
 \item{...}{Not used.}
 
 \item{lik}{If \code{TRUE}, \code{grad.glinv_gauss} and \code{hess.glinv_gauss} returns also the log-likelihood.}
+
+\item{num_threads}{Number of threads to use.}
 
 \item{grad}{If \code{TRUE}, \code{hess.glinv_gauss} returns also the gradient.}
 

@@ -27,12 +27,14 @@ glinv(
 
 \method{grad}{glinv}(
   mod,
+  num_threads = 2L,
   numDerivArgs = list(method = "Richardson", method.args = list(d = 0.5, r = 3)),
   ...
 )
 
 \method{hess}{glinv}(
   mod,
+  num_threads = 2L,
   numDerivArgs = list(method = "Richardson", method.args = list(d = 0.5, r = 3)),
   store_gaussian_hessian = FALSE,
   ...
@@ -85,6 +87,8 @@ short-cut alternative to supplying \code{pardims}, \code{parfns}, \code{parjacs}
 \item{...}{Not used.}
 
 \item{mod}{An object of class \code{glinv}.}
+
+\item{num_threads}{Number of threads to use.}
 
 \item{numDerivArgs}{Arguments to pass to \code{numDeriv::\link[numDeriv]{jacobian}}. Only used the user did not specify the
 \code{parjacs} arguments when creating \code{mod}.}

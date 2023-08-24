@@ -13,6 +13,7 @@
   use_optim = FALSE,
   project = NULL,
   projectArgs = NULL,
+  num_threads = 2L,
   control = list(),
   ...
 )
@@ -33,6 +34,8 @@
 \item{project}{Passed to \code{BBoptim}.}
 
 \item{projectArgs}{Passed to \code{BBoptim}.}
+
+\item{num_threads}{Number of threads to use when computing the gradient}
 
 \item{control}{Options to be passed into each the underlying optimisation routine's \code{control}
 argument.}

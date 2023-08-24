@@ -429,18 +429,20 @@ grad = function (mod, ...) UseMethod('grad')
 #' 
 #' @rdname glinv_gauss
 #' @param lik    If \code{TRUE}, \code{grad.glinv_gauss} and \code{hess.glinv_gauss} returns also the log-likelihood.
+#' @param num_threads Number of threads to use.
 #' @param ...    Not used.
 #' @export
-grad.glinv_gauss = function (mod, par=NULL, lik=FALSE, ...) {
+grad.glinv_gauss = function (mod, par=NULL, lik=FALSE, num_threads=2L, ...) {
   ensure_reinit(mod)
   if (is.null(par))
-    function (par) grad_glinv_gauss_(mod=mod, par=par, lik=lik)
+    function (par) grad_glinv_gauss_(mod=mod, par=par, lik=lik, num_threads=num_threads)
   else
-    grad_glinv_gauss_(mod=mod, par=par, lik=lik)
+    grad_glinv_gauss_(mod=mod, par=par, lik=lik, num_threads=num_threads)
 }
 
-grad_glinv_gauss_ = function (mod, par, lik=FALSE, ...) {
-  l = .Call(Rdphylik, mod$ctree, par, mod$x0, mod$gaussdim)
+grad_glinv_gauss_ = function (mod, par, lik=FALSE, num_threads=2L, ...) {
+  num_threads = as.integer(num_threads)
+  l = .Call(Rdphylik, mod$ctree, par, mod$x0, mod$gaussdim, num_threads)
   g = c(.Call(Rextractderivvec, mod$ctree))
   if (!lik) g
   else      list(lik = l, grad = g)
@@ -468,21 +470,23 @@ hess = function (mod, ...) UseMethod('hess')
 #'                    a huge matrix; otherwise, the funciton returns a square matrix \eqn{M} such that \eqn{M_ij}
 #'                    contains \eqn{d_i^T H d_j}, where \eqn{d_i} is the \eqn{i}-th column of \code{directions} and
 #'                    \eqn{H} is the huge Hessian matrix, without storing \eqn{H} itself in memory.
+#' @param num_threads Number of threads to use.
 #' @param ...         Not used.
 #' @export
-hess.glinv_gauss = function (mod, par=NULL, lik=FALSE, grad=FALSE, directions=NULL, ...) {
+hess.glinv_gauss = function (mod, par=NULL, lik=FALSE, grad=FALSE, directions=NULL, num_threads=2L, ...) {
   ensure_reinit(mod)
   if (is.null(par)) {
-    function (par) hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
-  } else           hess_glinv_gauss_(mod, par, lik, grad, directions, ...)
+    function (par) hess_glinv_gauss_(mod, par, lik, grad, directions, num_threads, ...)
+  } else           hess_glinv_gauss_(mod, par, lik, grad, directions, num_threads, ...)
 }
 
-hess_glinv_gauss_ = function (mod, par, lik=FALSE, grad=FALSE, directions=NULL, ...) {
+hess_glinv_gauss_ = function (mod, par, lik=FALSE, grad=FALSE, directions=NULL, num_threads=2L, ...) {
+  num_threads = as.integer(num_threads)
   if (is.null(directions)) {
-    l = .Call(Rhphylik, mod$ctree, par, mod$x0, mod$gaussdim)
+    l = .Call(Rhphylik, mod$ctree, par, mod$x0, mod$gaussdim, num_threads)
     h = .Call(Rextracthessall, mod$ctree)
   } else {
-    h = .Call(Rhphylik_dir, mod$ctree, par, mod$x0, mod$gaussdim, directions)
+    h = .Call(Rhphylik_dir, mod$ctree, par, mod$x0, mod$gaussdim, directions, num_threads)
     l = attr(h, 'likelihood')
     attr(h, 'likelihood') = NULL
   }
@@ -909,9 +913,10 @@ lik.glinv = function (mod, ...) {
 #' @rdname glinv
 #' @param numDerivArgs    Arguments to pass to \code{numDeriv::\link[numDeriv]{jacobian}}. Only used the user did not specify the
 #'                        \code{parjacs} arguments when creating \code{mod}.
+#' @param num_threads     Number of threads to use.
 #' @param ...             Not used.
 #' @export
-grad.glinv = function (mod, numDerivArgs = list(method='Richardson', method.args=list(d=.5,r=3)), ...) {
+grad.glinv = function (mod, num_threads = 2L, numDerivArgs = list(method='Richardson', method.args=list(d=.5,r=3)), ...) {
   if (is.null(mod$gaussparams_jac))
     function(x) {
       ensure_reinit(mod)
@@ -923,7 +928,8 @@ grad.glinv = function (mod, numDerivArgs = list(method='Richardson', method.args
       stop(sprintf("lik.glinv: your model should have %d parameters but I got %d",
                    mod$nparams, length(x)))
     else {
-      c(grad(mod$rawmod, mod$gaussparams_fn(x)) %*% mod$gaussparams_jac(x))
+      c(grad(mod$rawmod, mod$gaussparams_fn(x), num_threads=num_threads) %*%
+        mod$gaussparams_jac(x))
     }
   }
 }
@@ -943,6 +949,7 @@ grad.glinv = function (mod, numDerivArgs = list(method='Richardson', method.args
 #' @param ...             Not used.
 #' @export
 hess.glinv = function (mod,
+                       num_threads = 2L,
                        numDerivArgs = list(method='Richardson', method.args=list(d=.5,r=3)),
                        store_gaussian_hessian = FALSE, ...) {
   mod
@@ -960,13 +967,14 @@ hess.glinv = function (mod,
       stop("Second-order-derivatives of the user's parameterisation is not supplied")
     ## TODO: Check the type of parhess and warn the user when constructing the object!
     if (store_gaussian_hessian) {
-      Hvwphi = hess(mod$rawmod, as.double(mod$gaussparams_fn(par)))
+      Hvwphi = hess(mod$rawmod, as.double(mod$gaussparams_fn(par)), num_threads=num_threads)
       J = jac(par)
       left = crossprod(J, Hvwphi)
       lin = left %*% J
     } else {
       J = jac(par)
-      lin = hess(mod$rawmod, as.double(mod$gaussparams_fn(par)), directions = J)
+      lin = hess(mod$rawmod, as.double(mod$gaussparams_fn(par)), directions = J,
+                 num_threads=num_threads)
     }
     ## This will be what the C function `Rcurvifyhess' will be calling
     curvifier = function (nid, par) {
@@ -1118,6 +1126,7 @@ generics::fit
 #' @param use_optim    If true, use optim's version of \code{L-BFGS-B} and \code{CG}.
 #' @param project      Passed to \code{BBoptim}.
 #' @param projectArgs  Passed to \code{BBoptim}.
+#' @param num_threads  Number of threads to use when computing the gradient
 #' @param control      Options to be passed into each the underlying optimisation routine's \code{control}
 #'                     argument.
 #' @param ...          Not used.
@@ -1128,7 +1137,7 @@ generics::fit
 #'                     \item{convergence}{Zero if the optimisation routine has converged successfully.}
 #'                     \item{message}{A message from the optimisation routine.}
 #' @export
-fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, project=NULL, projectArgs=NULL, control=list(), ...) {
+fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper=Inf, use_optim=FALSE, project=NULL, projectArgs=NULL, num_threads=2L, control=list(), ...) {
   mod = object
   ensure_reinit(mod)
   if (is.null(parinit))
@@ -1139,7 +1148,7 @@ fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper
   result = if (!use_optim && method=='L-BFGS-B') {
              r = lbfgsb3c::lbfgsb3c(par   = parinit,
                                     fn    = default_ifwrong(fit_fnwrap(lik(mod), -1),  1,          -Inf),
-                                    gr    = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
+                                    gr    = default_ifwrong(fit_grwrap(grad(mod,num_threads=num_threads),-1), mod$nparams,   NA),
                                     lower = lower,
                                     upper = upper,
                                     control= list_set_default(control,
@@ -1161,7 +1170,7 @@ fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper
            } else if (!use_optim && method=='CG') {
              r = optimx::Rcgmin(par    = parinit,
                                 fn     = default_ifwrong(fit_fnwrap(lik(mod), -1),  1,          -Inf),
-                                gr     = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
+                                gr     = default_ifwrong(fit_grwrap(grad(mod,num_threads=num_threads),-1), mod$nparams,   NA),
                                 lower = lower,
                                 upper = upper,
                                 control= list_set_default(
@@ -1171,12 +1180,12 @@ fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper
                                        tol=mod$nparams*mod$nparams*5e-10))) # Default is about (npar^2)*1e-16.
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
-             r = c(r, list(score = grad(mod)(r[['mlepar']])))
+             r = c(r, list(score = grad(mod,num_threads=num_threads)(r[['mlepar']])))
              r
            } else if (!use_optim && method=='BB') {
              r = BB::BBoptim(par    = parinit,
                          fn     = default_ifwrong(fit_fnwrap(lik(mod), -1),  1,          -Inf),
-                         gr     = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
+                         gr     = default_ifwrong(fit_grwrap(grad(mod,num_threads=num_threads),-1), mod$nparams,   NA),
                          lower = lower,
                          upper = upper,
                          project = project,
@@ -1188,19 +1197,19 @@ fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper
              names(r)[which(names(r) == 'par')]      = 'mlepar'
              names(r)[which(names(r) == 'value')]    = 'loglik'
              r = r[-which(names(r) == "gradient")]
-             r = c(r, list(score = grad(mod)(r[['mlepar']])))
+             r = c(r, list(score = grad(mod,num_threads=num_threads)(r[['mlepar']])))
              r
            } else {
              r = stats::optim(par    = parinit,
                    fn     = default_ifwrong(fit_fnwrap(lik(mod), -1),  1,          -Inf),
-                   gr     = default_ifwrong(fit_grwrap(grad(mod),-1), mod$nparams,   NA),
+                   gr     = default_ifwrong(fit_grwrap(grad(mod,num_threads=num_threads),-1), mod$nparams,   NA),
                    lower  = lower,
                    upper  = upper,
                    control= list_set_default(control, list(maxit=500000,trace=1)),
                    method = method)
              names(r)[which(names(r) == 'par')]   = 'mlepar'
              names(r)[which(names(r) == 'value')] = 'loglik'
-             r = c(r, list(score = grad(mod)(r[['mlepar']])))
+             r = c(r, list(score = grad(mod,num_threads=num_threads)(r[['mlepar']])))
              r
            }
   names(result[['mlepar']]) = names(parinit)
@@ -1240,6 +1249,7 @@ fit.glinv = function (object, parinit=NULL, method='L-BFGS-B', lower=-Inf, upper
 #'                             is computed.
 #' @param numDerivArgs         Arguments to pass to \code{numDeriv::\link[numDeriv]{jacobian}}. Only used if the
 #'                             user did not supply \code{parjacs} when constructing \code{mod}.
+#' @param num_threads          Number of threads to use.
 #' @param store_gaussian_hessian If \code{TRUE} and \code{method} is not \code{mc}, the returned list will contain
 #'                             a (usually huge) Hessian matrix \code{gaussian_hessian} with respect to the Gaussian
 #'                             parameters \eqn{\Phi, w, V'}. This option significantly increases the amount of memory
@@ -1260,6 +1270,7 @@ varest.glinv = function (mod,
                          fitted,
                          method                 = 'analytical',
                          numDerivArgs           = list(method='Richardson', method.args=list(d=.5,r=3)),
+                         num_threads            = 2L,
                          store_gaussian_hessian = FALSE,
                          control.mc             = list(),
                          ...) {
@@ -1284,20 +1295,24 @@ varest.glinv = function (mod,
   r = switch(method,
          'linear'={
            if (store_gaussian_hessian) {
-             Hvwphi = hess(mod$rawmod, as.double(mod$gaussparams_fn(mlepar)))
+             Hvwphi = hess(mod$rawmod, as.double(mod$gaussparams_fn(mlepar)),
+                           num_threads=num_threads)
              J = jac(mlepar)
              H = crossprod(J, Hvwphi) %*% J
              invH = hessian_inv_warn(-H, 'The linearly approximated negative Hessian')
              rownames(invH) = colnames(invH) = rownames(H) = colnames(H) = names(mlepar)
              list(vcov = invH, hessian = H, gaussian_hessian=Hvwphi, mlepar = mlepar)
            } else {
-             H = hess(mod$rawmod, as.double(mod$gaussparams_fn(mlepar)), directions = jac(mlepar))
+             H = hess(mod$rawmod, as.double(mod$gaussparams_fn(mlepar)), directions = jac(mlepar),
+                      num_threads=num_threads)
              rownames(invH) = colnames(invH) = rownames(H) = colnames(H) = names(mlepar)
              list(vcov = hessian_inv_warn(-H), hessian = H, mlepar = mlepar)
            }
          },
          'analytical'={
-           H = hess(mod, numDerivArgs = numDerivArgs, store_gaussian_hessian = store_gaussian_hessian)(mlepar)
+           H = hess(mod, numDerivArgs = numDerivArgs,
+                    store_gaussian_hessian = store_gaussian_hessian,
+                    num_threads=num_threads)(mlepar)
            invH = hessian_inv_warn(-H, 'The negative Hessian')
            rownames(invH) = colnames(invH) = rownames(H) = colnames(H) = names(mlepar)
            r = list(vcov = invH, hessian = H, mlepar = mlepar)
@@ -1311,7 +1326,7 @@ varest.glinv = function (mod,
            Nsamp = control.mc$Nsamp
            quiet = control.mc$quiet
            p = length(mlepar)
-           g = grad.glinv(mod)
+           g = grad.glinv(mod, num_threads=num_threads)
            H = matrix(0.0,p,p)
            del        = double(p)
            theta_plus = double(p)
