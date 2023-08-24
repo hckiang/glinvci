@@ -1097,7 +1097,7 @@ generics::fit
 #' optimisation problem.
 #' 
 #' If \code{method} is \code{L-BFGS-B}, then \code{\link[lbfgsb3c]{lbfgsb3c}} is used for optimisation;
-#' if it is \code{CG} then \code{\link[Rcgmin]{Rcgmin}} from the \code{optimx} package is used; if it
+#' if it is \code{CG} then \code{\link[optimx]{Rcgmin}} from the \code{optimx} package is used; if it
 #' is \code{BB} then \code{\link[BB]{BBoptim}} is used, otherwise the method argument is passed to
 #'  \code{\link{optim}}.
 #'
