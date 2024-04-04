@@ -2574,7 +2574,7 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			else if (cmdstr[i] == 'V')     curstate = 3;
 			else if (cmdstr[i] == 'L')     curstate = 4;
 			else {
-				error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected output type declaration at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 2: /* Expects input argument for 'M'; */
@@ -2661,11 +2661,11 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy the entire kxk matrix */
 				if (iin+k*k > len_par)
-					error("Passed in parameter vector is too short", i, cmdstr[i]);
+					error("Passed in parameter vector is too short");
 				for (int j=0; j<k*k; ++j) out[iout++] = in[iin++];
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 3: /* Expects input argument for 'V'; */
@@ -2696,11 +2696,11 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 			} else if (cmdstr[i] == 'k') { /* keep the same */
 				/* Copy a k-vector */
 				if (iin+k > len_par)
-					error("Passed in parameter vector is too short", i, cmdstr[i]);
+					error("Passed in parameter vector is too short");
 				for (int j=0; j<k; ++j) out[iout++] = in[iin++];
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 4: /* Expects input argument for 'L' */
@@ -2740,7 +2740,7 @@ SEXP Rparamrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rk, SEXP Rfixedpart) {
 				UNPROTECT(1);
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			// THIS BREAK STATEMENT WILL BUG OUT A BIG-NAME COMMERCIAL COMPILER.
 			//break;
@@ -2818,7 +2818,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 			else if (cmdstr[i] == 'V')     curstate = 3;
 			else if (cmdstr[i] == 'L')     curstate = 4;
 			else
-				error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected output type declaration at position %d but got '%c'", i, cmdstr[i]);
 			break;
 		case 2: /* Expects input argument for 'M'; */
 			if (cmdstr[i] == 's') {                /* symmetric */
@@ -2893,7 +2893,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 				}
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 3: /* Expects input argument for 'V'; */
@@ -2913,7 +2913,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 				}
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 4: 	/* Expects input argument for 'L' */
@@ -2940,7 +2940,7 @@ SEXP Rpostjacrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rjac, SEXP Rk) {
 				ijacin += (k*(k+1))/2;
 				curstate = 1;
 			} else
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 		}
 		++i;
 	}
@@ -3026,7 +3026,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 			if      (cmdstr[i] == 'M')     curstate = 2;
 			else if (cmdstr[i] == 'V')     curstate = 3;
 			else if (cmdstr[i] == 'L')     curstate = 4;
-			else    error("Expected output type declaration at position %d but got '%s'", i, cmdstr[i]);
+			else    error("Expected output type declaration at position %d but got '%c'", i, cmdstr[i]);
 			break;
 		case 2: /* Expects input argument for 'M'; */
 			if (cmdstr[i] == 's') {        /* symmetric */
@@ -3193,7 +3193,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				isquashed+= k*k;
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 3: /* Expects input argument for 'V'; */
@@ -3216,7 +3216,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				isquashed+= k;
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 			break;
 		case 4: 	/* Expects input argument for 'L' */
@@ -3253,7 +3253,7 @@ SEXP Rposthessrestrict(SEXP Rcmdstr, SEXP Rpar, SEXP Rhess, SEXP Rk,
 				ihessin += (k*(k+1))/2;
 				curstate = 1;
 			} else {
-				error("Expected input type at position %d but got '%s'", i, cmdstr[i]);
+				error("Expected input type at position %d but got '%c'", i, cmdstr[i]);
 			}
 		}
 		++i;
