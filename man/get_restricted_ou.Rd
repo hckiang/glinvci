@@ -45,48 +45,58 @@ If lossmiss is \code{NULL}, the returned functions does not have capability to h
 lost values.
 }
 \examples{
-### --- STEP 1: Make an example tree and trait data
+### --- STEP 1: Make an example tree
+set.seed(0x5EEDL, kind='Super-Duper')
 ntips = 200
 k     = 2                 # No. of trait dimensions
 tr    = ape::rtree(ntips) 
-X     = matrix(rnorm(k*ntips), k, ntips)
 x0    = rnorm(k)
 
 ### --- STEP 2: Make a model which has unrestricted H, fixed theta and diagonal Sigma_x'.
 repar = get_restricted_ou(H=NULL, theta=c(3,1), Sig='diag', lossmiss=NULL)
-mod   = glinv(tr, x0, X,
+mod   = glinv(tr, x0, X=NULL,
               pardims =repar$nparams(k),
               parfns  =repar$par,
               parjacs =repar$jac,
               parhess =repar$hess)
 # Actually, to save typing, the following short-cut call is the same as the above:
-# mod = glinv(tr, x0, X, repar=repar)
+# mod = glinv(tr, x0, X=NULL, repar=repar)
 
-### --- STEP 3: Use the model as usual, say, we compute the likelihood at a specified parameter.
+### --- STEP 3: Set up parameters; H, theta, and sig_x needs to be concatenated
 H     = matrix(c(1,0,0,-1), k)
 theta = c(3,1)
 sig   = matrix(c(0.25,0,0,0.25), k)
 sig_x = t(chol(sig))
-LIK   = lik(mod)(c(H, c(0.5,0.5)))
+par_truth = c(H=H, sig_x=c(0.5,0.5))
 
-### --- STEP 4: Confirm the restricted model does indeed match the unrestricted.
+### --- STEP 4: Get a simulated data set to toy with
+X = rglinv(mod, par=par_truth)
+set_tips(mod, X)
+
+### --- STEP 5: Make an unrestricted model object to compare with the one
+### whose parameters are restricted.
 mod_unrestricted = glinv(tr, x0, X,
                          pardims=nparams_ou(k),
                          parfns=oupar,
                          parjacs=oujac,
                          parhess=ouhess)
+
+
+### --- STEP 6: Confirm this is indeed the same as typing everything manually
+## Does the restricted model gives the same likelihood as the unrestricted? (Yes, it does.)
+LIK   = lik(mod)(par_truth)
 LIK_unrestricted = lik(mod_unrestricted)(c(H,theta,sig_x[lower.tri(sig_x, diag=TRUE)]))
 print(LIK == LIK_unrestricted)
 # [1] TRUE
-
-### --- STEP 5: Confirm the this is indeed the same as making everything manually
+## We can as well type everything manually as follows. This mod_manual should be
+## the same as the mod object; just a different way of calling the glinv function.
 mod_manual = glinv(tr, x0, X,
                    pardims  = nparams_ou_fixedtheta_diagSig(k),
                    parfns   = ou_fixedtheta_diagSig(oupar,   theta=c(3,1)),
                    parjacs  = dou_fixedtheta_diagSig(oujac,  theta=c(3,1)),
                    parhess  = hou_fixedtheta_diagSig(ouhess, theta=c(3,1)))
-LIK_manual = lik(mod_manual)(c(H=H, sig_x=c(0.5,0.5)))
-print(LIK == LIK_manual)
+LIK_manual = lik(mod_manual)(par_truth)
+print(LIK == LIK_manual) #It's really the same
 # [1] TRUE
 
 }
