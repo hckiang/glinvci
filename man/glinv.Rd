@@ -172,43 +172,60 @@ Passing a single function to \code{parfns} is equivalent to passing a singleton 
 }
 \examples{
 \donttest{
-### --- STEP 1: Making an example tree and trait data
+library(glinvci)
+### --- STEP 1: Make an example tree
+set.seed(0x5EEDL, kind='Super-Duper')
 ntips = 200
 k     = 2                 # No. of trait dimensions
 tr    = ape::rtree(ntips) 
-X     = matrix(rnorm(k*ntips), k, ntips)
 x0    = rnorm(k)
 
-### --- STEP 2: Making a model object. We use OU as an example.
-###             Assume H is a positively definite diagonal matrix.
-mod = glinv(tr, x0, X,
-            parfns = list(ou_logdiagH(ou_haltlost(oupar))),
+### --- STEP 2: Make a model object. We use OU as an example.
+###             Assume H is a positively definite diagonal matrix and in
+###             log scale.
+mod = glinv(tr, x0, X=NULL,
+            parfns  = list(ou_logdiagH(ou_haltlost(oupar))),
             pardims = list(nparams_ou_diagH(k)),
             parjacs = list(dou_logdiagH(dou_haltlost(oujac))),
             parhess = list(hou_logdiagH(hou_haltlost(ouhess))))
 
-### --- STEP 3: Try getting the likelihood, gradient etc.
-H     = matrix(c(1,0,0,-1), k)
+### --- STEP 3: Set up parameters; H, theta, and sig_x needs to be concatenated
+H     = matrix(c(2,0,0,1/2), k) #Diagonals, 
 theta = c(0,0)
-sig   = matrix(c(0.5,0,0,0.5), k)
+sig   = matrix(c(0.5,0.1,0.1,0.2), k)
 sig_x = t(chol(sig))
-# glinvci ALWAYS assumes diagonals of sig_x is in log scale.
+## glinvci ALWAYS assumes diagonals of sig_x is in log scale.
 diag(sig_x) = log(diag(sig_x))
-par_init = c(H=diag(H),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=TRUE)])
-print(par_init)
-print(lik(mod)(par_init))
-print(grad(mod)(par_init))
-print(hess(mod)(par_init))
+par_truth = c(logdiagH=log(diag(H)),theta=theta,sig_x=sig_x[lower.tri(sig_x,diag=TRUE)])
+## Now par_truth the vector of parameters in the right format that the model
+## can consume. Notice about we use log(diag(H)) because we specified ou
+## logdiagH earlier.
 
-### --- STEP 4: Fitting a model
-fitted = fit(mod, par_init)
+### --- STEP 4: Simulate a data set from the model and the true parameters,
+### then set this data into the model.
+X = rglinv(mod, par=par_truth)
+set_tips(mod, X)
+
+### --- STEP 5: Try computing the likelihood, gradient and Hessian justifying
+### for illustration purpose.
+print(par_truth)
+print(lik(mod)(par_truth))
+print(grad(mod)(par_truth))
+print(hess(mod)(par_truth))
+
+### --- STEP 6: Fit a model; here we use the truth as initialisation
+### only for illustration purpose to reduce load on CRAN's server. In reality
+### you usually want to initialise with either some best guess or random
+### values.
+fitted = fit(mod, parinit = par_truth)
 print(fitted)
 
-### --- STEP 5: Estimating variance-covariance of the MLE
+### --- STEP 7: Estimate the variance-covariance matrix of the MLE
 v_estimate = varest(mod, fitted)
 
-### --- STEP 6: Get marginal confidence intervals
+### --- STEP 8: Get marginal confidence intervals; and compare with the truth.
 print(marginal_ci(v_estimate, lvl=0.95)) 
+print(par_truth)
 }
 }
 \references{
